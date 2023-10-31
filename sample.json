@@ -1,0 +1,6 @@
+{
+  "birthdays": [
+    {"name": "Иван Иванов", "date": "25-09", "username": "ivan_ivanov"},
+    {"name": "Мария Ивановна", "date": "26-06", "username": "maria_ivanovna"}
+  ]
+}
