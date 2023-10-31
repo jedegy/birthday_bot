@@ -42,7 +42,7 @@ struct Birthdays {
 }
 
 /// Represents the state of the bot.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 enum State {
     Active,
     Disabled,
@@ -53,7 +53,7 @@ enum State {
 #[derive(Clone)]
 struct ConfigParameters {
     bot_maintainer: UserId,
-    maintainer_username: Option<String>,
+    _maintainer_username: Option<String>,
 }
 
 /// Enum defining simple commands for the bot.
@@ -81,6 +81,12 @@ enum MaintainerCommands {
     Disable,
 }
 
+/// Function checks that user has admin rights
+async fn is_admin(bot: &Bot, chat_id: ChatId, user_id: UserId) -> Result<bool, RequestError> {
+    let admins = bot.get_chat_administrators(chat_id).send().await?;
+    Ok(admins.iter().any(|admin| admin.user.id == user_id))
+}
+
 /// The main function for the bot, using Tokio.
 #[tokio::main]
 async fn main() {
@@ -101,7 +107,7 @@ async fn main() {
     // Set configuration parameters
     let parameters = ConfigParameters {
         bot_maintainer: UserId(MAINTAINER_USER_ID),
-        maintainer_username: Some(String::from(MAINTAINER_USERNAME)),
+        _maintainer_username: Some(String::from(MAINTAINER_USERNAME)),
     };
 
     // Build the handler for the bot
@@ -139,10 +145,16 @@ fn build_handler(
         )
         // Branch for handling maintainer commands
         .branch(
-            dptree::filter(|cfg: ConfigParameters, msg: Message| {
-                msg.from()
-                    .map(|user| user.id == cfg.bot_maintainer)
-                    .unwrap_or_default()
+            dptree::filter_async(|cfg: ConfigParameters, msg: Message, bot: Bot| async move {
+                if let Some(user) = msg.from() {
+                    user.id == cfg.bot_maintainer
+                        || (msg.chat.is_group()
+                            && is_admin(&bot, msg.chat.id, user.id)
+                                .await
+                                .unwrap_or_default())
+                } else {
+                    false
+                }
             })
             .filter_command::<MaintainerCommands>()
             .endpoint(move |msg: Message, bot: Bot, cmd: MaintainerCommands| {
@@ -189,27 +201,23 @@ async fn handle_active_command(
     let (reply_msg, send_sample) = {
         let mut map = birthday_map.write().await;
 
-        match map.entry(msg.chat.id) {
-            Entry::Occupied(mut entry) => {
-                let entry = entry.get_mut();
-
-                match (*entry).0 {
-                    State::Active | State::Disabled if (*entry).1.birthdays.is_empty() => {
-                        ("Отправьте json файл с указанием дней рождений", true)
-                    }
-                    State::Disabled => {
-                        (*entry).0 = State::Active;
-                        ("Напоминания от бота снова активны.", false)
-                    }
-                    State::Active => ("Напоминания от бота уже активны в данном чате.", false),
-                    State::WaitingJson => ("Отправьте json файл с указанием дней рождений", true),
+        map.get_mut(&msg.chat.id)
+            .map(|(state, birthdays)| match state {
+                State::Active | State::Disabled if birthdays.birthdays.is_empty() => {
+                    *state = State::WaitingJson;
+                    ("Отправьте json файл с указанием дней рождений", true)
                 }
-            }
-            Entry::Vacant(entry) => {
-                entry.insert((State::WaitingJson, Birthdays::default()));
+                State::Disabled => {
+                    *state = State::Active;
+                    ("Напоминания от бота снова активны.", false)
+                }
+                State::Active => ("Напоминания от бота уже активны в данном чате.", false),
+                State::WaitingJson => ("Отправьте json файл с указанием дней рождений", true),
+            })
+            .unwrap_or({
+                map.insert(msg.chat.id, (State::WaitingJson, Birthdays::default()));
                 ("Отправьте json файл с указанием дней рождений", true)
-            }
-        }
+            })
     };
     bot.send_message(msg.chat.id, reply_msg).await?;
 
@@ -362,7 +370,12 @@ async fn commands_handler(
     // Determine the response based on the command.
     let text = match cmd {
         Command::Help => {
-            if msg.from().unwrap().id == cfg.bot_maintainer {
+            if msg.from().unwrap().id == cfg.bot_maintainer
+                || (msg.chat.is_group()
+                    && is_admin(&bot, msg.chat.id, msg.from().unwrap().id)
+                        .await
+                        .unwrap_or_default())
+            {
                 format!(
                     "{}\n{}",
                     Command::descriptions(),
@@ -376,11 +389,14 @@ async fn commands_handler(
         }
         Command::Maintainer => {
             if msg.from().unwrap().id == cfg.bot_maintainer {
-                "Администратор вы!".into()
-            } else if let Some(username) = cfg.maintainer_username {
-                format!("Администратор @{username}")
+                "Администратор бота вы!".into()
+            } else if is_admin(&bot, msg.chat.id, msg.from().unwrap().id)
+                .await
+                .unwrap_or_default()
+            {
+                format!("Вы можете администрировать бота в этом чате.")
             } else {
-                format!("Администратор ID {}", cfg.bot_maintainer)
+                format!("Администратор бота {}", cfg.bot_maintainer)
             }
         }
     };
