@@ -3,7 +3,7 @@ use chrono::{Duration, Utc};
 use serde::Deserialize;
 use teloxide::dispatching::{DpHandlerDescription, UpdateFilterExt};
 use teloxide::net::Download;
-use teloxide::types::InputFile;
+use teloxide::types::{Chat, InputFile};
 use teloxide::{
     prelude::*,
     types::{Update, UserId},
@@ -22,10 +22,17 @@ use std::sync::Arc;
 const SAMPLE_JSON_FILE_PATH: &str = "sample.json";
 /// The file path for the token file.
 const TOKEN_FILE_PATH: &str = "token.txt";
-/// The username of the bot maintainer.
-const MAINTAINER_USERNAME: &str = "dsemak";
 /// The user ID of the bot maintainer.
 const MAINTAINER_USER_ID: u64 = 437067064;
+
+const GREETINGS_MSG: &str =
+    "Привет! Этот бот создан для тех, кто постоянно забывает про дни рождения😁\n
+С помощью него вы никогда не забудете поздравить своих друзей, коллег по работе или родственников.\n
+Для более подробной информации по настройке используйте команду /help.";
+
+const JSON_MSG: &str =
+    "Отправьте мне заполненный JSON файл с указанием дней рождений. Я отправил вам пример того, \
+как должен выглядить файл";
 
 /// Represents a birthday with a name, date, and username.
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -53,38 +60,101 @@ enum State {
 #[derive(Clone)]
 struct ConfigParameters {
     bot_maintainer: UserId,
-    _maintainer_username: Option<String>,
 }
 
 /// Enum defining simple commands for the bot.
 #[derive(BotCommands, Clone)]
 #[command(
     rename_rule = "lowercase",
-    description = "Привет! Это бот для отправки уведомлений о днях рождениях. Команды бота:"
+    description = "С помощью этих команд вы можете взаимодействовать и управлять мной.🤖\n\n\
+    Основные команды доступны только для администраторов групп и каналов, а также если вы добавили меня в чат.\n\
+    Проверить свой статус можно с помощью команды /checkcontrol"
 )]
 enum Command {
+    /// Displays the hello message for the bot.
+    #[command(description = "Отображает приветственное сообщение")]
+    Start,
     /// Displays the description of the bot.
-    #[command(description = "Отображает описание бота.")]
+    #[command(description = "Отображает это сообщение")]
     Help,
     /// Displays the administrator of the bot.
-    #[command(description = "Отображает администратора данного бота.")]
-    Maintainer,
+    #[command(description = "Запускает проверку прав")]
+    CheckControl,
+    /// Sends a sample JSON file with birthdays.
+    #[command(description = "Попросить меня отправить вам пример заполненного JSON файла")]
+    File,
 }
 
-/// Enum defining maintainer commands for the bot.
+/// Enum defining admin commands for the bot.
 #[derive(BotCommands, Clone)]
 #[command(rename_rule = "lowercase")]
-enum MaintainerCommands {
-    #[command(description = "Включает бота в текущем чате.")]
+enum AdminCommands {
+    #[command(description = "Включает уведомления о днях рождениях от меня")]
     Active,
-    #[command(description = "Отключает бота в текущем чате.")]
+    #[command(description = "Отключает уведомления о днях рождениях от меня")]
     Disable,
 }
 
 /// Function checks that user has admin rights
+///
+/// # Arguments
+///
+/// * `bot` - The bot instance
+/// * `chat_id` - The chat id
+/// * `user_id` - The user id
+///
+/// # Returns
+///
+/// A `Result` indicating the user has admin rights or not.
 async fn is_admin(bot: &Bot, chat_id: ChatId, user_id: UserId) -> Result<bool, RequestError> {
     let admins = bot.get_chat_administrators(chat_id).send().await?;
     Ok(admins.iter().any(|admin| admin.user.id == user_id))
+}
+
+/// Function checks that user is maintainer
+///
+/// # Arguments
+///
+/// * `user_id` - The user id
+///
+/// # Returns
+///
+/// A `bool` indicating the user is maintainer or not.
+fn is_mainainer(user_id: UserId) -> bool {
+    user_id == UserId(MAINTAINER_USER_ID)
+}
+
+/// Function returns place where bot is used
+///
+/// # Arguments
+///
+/// * `chat` - The chat where bot is used
+///
+/// # Returns
+///
+/// A `String` indicating the place where bot is used.
+fn get_palce(chat: &Chat) -> String {
+    if chat.is_group() || chat.is_supergroup() {
+        "в этой группе".into()
+    } else if chat.is_channel() {
+        "в этом канале".into()
+    } else {
+        "в этом чате".into()
+    }
+}
+
+/// Function formats admin commands description
+///
+/// # Arguments
+///
+/// * `desc` - The description of admin commands
+/// * `place` - The place where bot is used
+fn format_admin_commands_desc(desc: &str, place: &str) -> String {
+    let mut result = String::new();
+    for line in desc.split_terminator('\n') {
+        result.push_str(&format!("{} {}\n", line, place));
+    }
+    result
 }
 
 /// The main function for the bot, using Tokio.
@@ -94,21 +164,28 @@ async fn main() {
     pretty_env_logger::init();
     log::info!("Starting dispatching birthday reminder bot...");
 
-    // Create a new bot instance
-    let bot = Bot::new(get_token());
-    let birthdays_map = Arc::new(RwLock::new(HashMap::<ChatId, (State, Birthdays)>::new()));
-
-    // Spawn a Tokio task for sending birthday reminders
-    tokio::spawn(send_birthday_reminders(
-        bot.clone(),
-        Arc::clone(&birthdays_map),
-    ));
-
     // Set configuration parameters
     let parameters = ConfigParameters {
         bot_maintainer: UserId(MAINTAINER_USER_ID),
-        _maintainer_username: Some(String::from(MAINTAINER_USERNAME)),
     };
+
+    // Create a new bot instance
+    let bot = Bot::new(get_token());
+    let bot_cloned = bot.clone();
+
+    // Create a thread-safe map of chat IDs to bot states and birthdays
+    let birthdays_map = Arc::new(RwLock::new(HashMap::<ChatId, (State, Birthdays)>::new()));
+    let birthdays_map_cloned = Arc::clone(&birthdays_map);
+
+    // Spawn a Tokio task for sending birthday reminders
+    tokio::spawn(async move {
+        loop {
+            match send_birthday_reminders(bot_cloned.clone(), birthdays_map_cloned.clone()).await {
+                Ok(_) => break,
+                Err(e) => log::error!("Error sending birthday reminders: {}", e),
+            }
+        }
+    });
 
     // Build the handler for the bot
     let handler = build_handler(Arc::clone(&birthdays_map));
@@ -156,17 +233,17 @@ fn build_handler(
                     false
                 }
             })
-            .filter_command::<MaintainerCommands>()
-            .endpoint(move |msg: Message, bot: Bot, cmd: MaintainerCommands| {
+            .filter_command::<AdminCommands>()
+            .endpoint(move |msg: Message, bot: Bot, cmd: AdminCommands| {
                 let b_map_for_active = b_map.clone();
                 let b_map_for_disable = b_map.clone();
 
                 async move {
                     match cmd {
-                        MaintainerCommands::Active => {
+                        AdminCommands::Active => {
                             handle_active_command(bot, msg, b_map_for_active).await
                         }
-                        MaintainerCommands::Disable => {
+                        AdminCommands::Disable => {
                             handle_disable_command(bot, msg, b_map_for_disable).await
                         }
                     }
@@ -198,6 +275,8 @@ async fn handle_active_command(
 ) -> ResponseResult<()> {
     log::info!("Active command received from chat id {}", msg.chat.id);
 
+    let place = get_palce(&msg.chat);
+
     let (reply_msg, send_sample) = {
         let mut map = birthday_map.write().await;
 
@@ -205,18 +284,21 @@ async fn handle_active_command(
             .map(|(state, birthdays)| match state {
                 State::Active | State::Disabled if birthdays.birthdays.is_empty() => {
                     *state = State::WaitingJson;
-                    ("Отправьте json файл с указанием дней рождений", true)
+                    (JSON_MSG.into(), false)
                 }
                 State::Disabled => {
                     *state = State::Active;
-                    ("Напоминания от бота снова активны.", false)
+                    (
+                        format!("Уведомления от меня снова активны {}", place),
+                        false,
+                    )
                 }
-                State::Active => ("Напоминания от бота уже активны в данном чате.", false),
-                State::WaitingJson => ("Отправьте json файл с указанием дней рождений", true),
+                State::Active => (format!("Уведомления от меня уже активны {}", place), false),
+                State::WaitingJson => (JSON_MSG.into(), false),
             })
             .unwrap_or({
                 map.insert(msg.chat.id, (State::WaitingJson, Birthdays::default()));
-                ("Отправьте json файл с указанием дней рождений", true)
+                (JSON_MSG.into(), true)
             })
     };
     bot.send_message(msg.chat.id, reply_msg).await?;
@@ -247,23 +329,24 @@ async fn handle_disable_command(
 ) -> ResponseResult<()> {
     log::info!("Disable command received from chat id {}", msg.chat.id);
 
+    let place = get_palce(&msg.chat);
+
     let reply_text = {
         let mut map = birthday_map.write().await;
-
         match map.entry(msg.chat.id) {
             Entry::Occupied(mut entry) => {
                 let (state, _) = entry.get_mut();
                 match *state {
-                    State::Disabled => "Напоминания уже отключены для данного чата".to_string(),
+                    State::Disabled => format!("Уведомления от меня уже отключены {}", place),
                     _ => {
                         *state = State::Disabled;
-                        "Напоминания отключены для данного чата".to_string()
+                        format!("Уведомления от меня отключены {}. Для повторной активации выполните команду /active", place)
                     }
                 }
             }
             Entry::Vacant(entry) => {
                 entry.insert((State::Disabled, Birthdays::default()));
-                "Напоминания отключены для данного чата".to_string()
+                format!("Уведомления от меня отключены {}. Для повторной активации выполните команду /active", place)
             }
         }
     };
@@ -310,14 +393,18 @@ async fn handle_document(
             match serde_json::from_str(&file_content) {
                 Ok(birthdays) => {
                     b_map.insert(msg.chat.id, (State::Active, birthdays));
-                    bot.send_message(msg.chat.id, "Дни рождения успешно загружены")
+                    bot.send_message(msg.chat.id, "Дни рождения успешно загружены🎉")
                         .await?;
                 }
                 Err(e) => {
                     log::error!("Failed to parse the file content: {}", e);
-                    b_map.insert(msg.chat.id, (State::Disabled, Birthdays::default()));
-                    bot.send_message(msg.chat.id, "Отправленный файл не корректный")
-                        .await?;
+                    b_map.insert(msg.chat.id, (State::WaitingJson, Birthdays::default()));
+                    bot.send_message(
+                        msg.chat.id,
+                        "К сожалению, отправленный файл не корректный или содержит ошибки😔 \
+                    Проверьте его и отправьте ещё раз",
+                    )
+                    .await?;
                 }
             }
         }
@@ -326,25 +413,32 @@ async fn handle_document(
     Ok(())
 }
 
-/// Retrieves the bot token from a file.
+/// Retrieves the bot token from an environment variable or a file.
 ///
-/// The token is read from a predefined file path (`TOKEN_FILE_PATH`).
+/// The token is read from the `BIRTHDAY_REMINDER_BOT_TOKEN` environment variable.
+/// If the environment variable is not set, the token is read from a predefined file path (`TOKEN_FILE_PATH`).
 ///
 /// # Returns
 ///
 /// The bot token as a `String`.
 fn get_token() -> String {
-    // Open the token file.
-    let token_file = std::fs::File::open(TOKEN_FILE_PATH).unwrap();
-    let mut token = String::new();
+    // Try to get the token from the environment variable.
+    match std::env::var("BIRTHDAY_REMINDER_BOT_TOKEN") {
+        Ok(token) => token,
+        Err(_) => {
+            // If the environment variable is not set, read the token from the file.
+            let token_file = std::fs::File::open(TOKEN_FILE_PATH).unwrap();
+            let mut token = String::new();
 
-    // Read the token from the file.
-    std::io::BufReader::new(token_file)
-        .read_line(&mut token)
-        .unwrap();
+            // Read the token from the file.
+            std::io::BufReader::new(token_file)
+                .read_line(&mut token)
+                .unwrap();
 
-    // Return the trimmed token.
-    token.trim().to_string()
+            // Return the trimmed token.
+            token.trim().to_string()
+        }
+    }
 }
 
 /// Handles commands for the bot.
@@ -361,43 +455,67 @@ fn get_token() -> String {
 ///
 /// A `Result` indicating the success or failure of the command handling.
 async fn commands_handler(
-    cfg: ConfigParameters,
     bot: Bot,
     me: teloxide::types::Me,
     msg: Message,
     cmd: Command,
 ) -> Result<(), RequestError> {
+    // Determine the user ID of the message sender.
+    let user_id = msg.from().unwrap().id;
+
+    // Determine the place where the bot is used.
+    let place = get_palce(&msg.chat);
+
     // Determine the response based on the command.
     let text = match cmd {
+        Command::Start => GREETINGS_MSG.to_string(),
         Command::Help => {
-            if msg.from().unwrap().id == cfg.bot_maintainer
-                || (msg.chat.is_group()
-                    && is_admin(&bot, msg.chat.id, msg.from().unwrap().id)
+            if msg.chat.is_group() || msg.chat.is_supergroup() || msg.chat.is_channel() {
+                if is_mainainer(user_id)
+                    || is_admin(&bot, msg.chat.id, user_id)
                         .await
-                        .unwrap_or_default())
-            {
+                        .unwrap_or_default()
+                {
+                    format!(
+                        "{}\n{}",
+                        Command::descriptions().username_from_me(&me).to_string(),
+                        format_admin_commands_desc(
+                            &AdminCommands::descriptions()
+                                .username_from_me(&me)
+                                .to_string(),
+                            &place
+                        )
+                    )
+                } else {
+                    Command::descriptions().username_from_me(&me).to_string()
+                }
+            } else {
                 format!(
                     "{}\n{}",
-                    Command::descriptions(),
-                    MaintainerCommands::descriptions()
+                    Command::descriptions().to_string(),
+                    format_admin_commands_desc(&AdminCommands::descriptions().to_string(), &place)
                 )
-            } else if msg.chat.is_group() || msg.chat.is_supergroup() {
-                Command::descriptions().username_from_me(&me).to_string()
-            } else {
-                Command::descriptions().to_string()
             }
         }
-        Command::Maintainer => {
-            if msg.from().unwrap().id == cfg.bot_maintainer {
-                "Администратор бота вы!".into()
-            } else if is_admin(&bot, msg.chat.id, msg.from().unwrap().id)
+        Command::CheckControl => {
+            if is_mainainer(user_id) {
+                "Вы мой создатель!🙏".into()
+            } else if is_admin(&bot, msg.chat.id, user_id)
                 .await
                 .unwrap_or_default()
             {
-                format!("Вы можете администрировать бота в этом чате.")
+                format!("Вы можете взаимодействовать со мной {}!😄", place)
             } else {
-                format!("Администратор бота {}", cfg.bot_maintainer)
+                format!(
+                    "К сожалению, вы не можете взаимодействовать со мной {}😞",
+                    place
+                )
             }
+        }
+        Command::File => {
+            bot.send_document(msg.chat.id, InputFile::file(SAMPLE_JSON_FILE_PATH))
+                .await?;
+            return Ok(());
         }
     };
 
@@ -419,7 +537,7 @@ async fn commands_handler(
 async fn send_birthday_reminders(
     bot: Bot,
     birthdays_map: Arc<RwLock<HashMap<ChatId, (State, Birthdays)>>>,
-) {
+) -> Result<(), Box<dyn std::error::Error>> {
     loop {
         // Calculate the time for the next reminder.
         let now = Utc::now().naive_utc();
@@ -442,9 +560,15 @@ async fn send_birthday_reminders(
                 if State::Active == *state {
                     for birthday in vec.birthdays.iter() {
                         if birthday.date == tomorrow {
+                            let username_text = if !birthday.username.is_empty() {
+                                format!("({})", birthday.username)
+                            } else {
+                                "".into()
+                            };
+
                             let text = format!(
-                                "Завтра день рождения у замечательного человека {} ({})! ",
-                                birthday.name, birthday.username
+                                "Завтра день рождения у замечательного человека {} {}!🎉",
+                                birthday.name, username_text
                             );
                             output.push((*chat_id, text));
                         }
@@ -455,7 +579,7 @@ async fn send_birthday_reminders(
 
         // Send the reminders.
         for (chat_id, text) in output {
-            bot.send_message(chat_id, text).await.unwrap();
+            bot.send_message(chat_id, text).await?;
         }
     }
 }
