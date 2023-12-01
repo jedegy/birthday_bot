@@ -120,7 +120,7 @@ async fn is_admin(bot: &Bot, chat_id: ChatId, user_id: UserId) -> Result<bool, R
 /// # Returns
 ///
 /// A `bool` indicating the user is maintainer or not.
-fn is_mainainer(user_id: UserId) -> bool {
+fn is_maintainer(user_id: UserId) -> bool {
     user_id == UserId(MAINTAINER_USER_ID)
 }
 
@@ -133,7 +133,7 @@ fn is_mainainer(user_id: UserId) -> bool {
 /// # Returns
 ///
 /// A `String` indicating the place where bot is used.
-fn get_palce(chat: &Chat) -> String {
+fn get_place(chat: &Chat) -> String {
     if chat.is_group() || chat.is_supergroup() {
         "в этой группе".into()
     } else if chat.is_channel() {
@@ -275,7 +275,7 @@ async fn handle_active_command(
 ) -> ResponseResult<()> {
     log::info!("Active command received from chat id {}", msg.chat.id);
 
-    let place = get_palce(&msg.chat);
+    let place = get_place(&msg.chat);
 
     let (reply_msg, send_sample) = {
         let mut map = birthday_map.write().await;
@@ -329,7 +329,7 @@ async fn handle_disable_command(
 ) -> ResponseResult<()> {
     log::info!("Disable command received from chat id {}", msg.chat.id);
 
-    let place = get_palce(&msg.chat);
+    let place = get_place(&msg.chat);
 
     let reply_text = {
         let mut map = birthday_map.write().await;
@@ -393,8 +393,12 @@ async fn handle_document(
             match serde_json::from_str(&file_content) {
                 Ok(birthdays) => {
                     b_map.insert(msg.chat.id, (State::Active, birthdays));
-                    bot.send_message(msg.chat.id, "Дни рождения успешно загружены🎉")
-                        .await?;
+                    bot.send_message(
+                        msg.chat.id,
+                        "Дни рождения успешно загружены🎉 \
+                    Напоминания будут приходить за один день в 7:00 UTC",
+                    )
+                    .await?;
                 }
                 Err(e) => {
                     log::error!("Failed to parse the file content: {}", e);
@@ -464,14 +468,14 @@ async fn commands_handler(
     let user_id = msg.from().unwrap().id;
 
     // Determine the place where the bot is used.
-    let place = get_palce(&msg.chat);
+    let place = get_place(&msg.chat);
 
     // Determine the response based on the command.
     let text = match cmd {
         Command::Start => GREETINGS_MSG.to_string(),
         Command::Help => {
             if msg.chat.is_group() || msg.chat.is_supergroup() || msg.chat.is_channel() {
-                if is_mainainer(user_id)
+                if is_maintainer(user_id)
                     || is_admin(&bot, msg.chat.id, user_id)
                         .await
                         .unwrap_or_default()
@@ -498,7 +502,7 @@ async fn commands_handler(
             }
         }
         Command::CheckControl => {
-            if is_mainainer(user_id) {
+            if is_maintainer(user_id) {
                 "Вы мой создатель!🙏".into()
             } else if is_admin(&bot, msg.chat.id, user_id)
                 .await
@@ -533,7 +537,7 @@ async fn commands_handler(
 /// * `birthdays_map` - A thread-safe map of chat IDs to bot states and birthdays.
 ///
 /// This function sends reminders about upcoming birthdays to chats
-/// with an active bot state. The reminders are sent at 9:00 AM UTC daily.
+/// with an active bot state. The reminders are sent at 7:00 AM UTC daily.
 async fn send_birthday_reminders(
     bot: Bot,
     birthdays_map: Arc<RwLock<HashMap<ChatId, (State, Birthdays)>>>,
@@ -543,7 +547,7 @@ async fn send_birthday_reminders(
         let now = Utc::now().naive_utc();
         let next_run = (now + Duration::days(1))
             .date()
-            .and_hms_opt(9, 0, 0)
+            .and_hms_opt(7, 0, 0)
             .unwrap();
         let duration_until_next_run = (next_run - now).to_std().unwrap_or_default();
 
