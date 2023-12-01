@@ -3,6 +3,7 @@ use teloxide::types::Chat;
 use teloxide::{Bot, RequestError};
 
 use std::io::BufRead;
+use std::path::PathBuf;
 
 /// Function formats admin commands description
 ///
@@ -78,22 +79,34 @@ pub fn get_place(chat: &Chat) -> String {
 /// # Returns
 ///
 /// The bot token as a `String`.
-pub fn get_token(path: &str) -> String {
-    // Try to get the token from the environment variable.
-    match std::env::var(super::BOT_TOKEN_ENV_VAR) {
-        Ok(token) => token,
-        Err(_) => {
-            // If the environment variable is not set, read the token from the file.
-            let token_file = std::fs::File::open(path).unwrap();
+pub fn get_token(path: Option<PathBuf>) -> std::io::Result<String> {
+    match path {
+        Some(path) => {
+            let token_file = std::fs::File::open(path)?;
             let mut token = String::new();
 
             // Read the token from the file.
-            std::io::BufReader::new(token_file)
-                .read_line(&mut token)
-                .unwrap();
+            std::io::BufReader::new(token_file).read_line(&mut token)?;
+
+            log::info!("Using token retrieved from file");
 
             // Return the trimmed token.
-            token.trim().to_string()
+            Ok(token.trim().to_string())
+        }
+        None => {
+            log::warn!(
+                "No token file path provided, trying to get the token from environment variable"
+            );
+            match std::env::var(super::BOT_TOKEN_ENV_VAR) {
+                Ok(token) => {
+                    log::info!("Using token retrieved from environment variable");
+                    Ok(token)
+                }
+                Err(_) => Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to get the bot token from environment variable"),
+                )),
+            }
         }
     }
 }

@@ -1,14 +1,14 @@
 [package]
 name = "birthday_bot"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-desription = "A Telegram bot that sends birthday reminders"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 async-tempfile = { version = "0.4.0" }
 chrono = { version = "0.4.31" }
+clap = { version = "4.4.10", features = ["derive"] }
 log = { version = "0.4" }
 pretty_env_logger = { version = "0.5.0" }
 serde = { version = "1.0", features = ["derive"] }

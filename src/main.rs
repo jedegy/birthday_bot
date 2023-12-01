@@ -1,21 +1,21 @@
+mod args;
 mod handles;
 mod tasks;
 mod utils;
 
+use clap::Parser;
 use serde::Deserialize;
-use teloxide::dispatching::{DpHandlerDescription, UpdateFilterExt};
 use teloxide::{
-    prelude::*,
+    dispatching::{DpHandlerDescription, HandlerExt, UpdateFilterExt},
+    dptree,
+    prelude::{ChatId, DependencyMap, Dispatcher, Handler, LoggingErrorHandler, Message},
     types::{Update, UserId},
-    RequestError,
+    Bot, RequestError,
 };
 use tokio::sync::RwLock;
 
 use std::collections::HashMap;
 use std::sync::Arc;
-
-/// The file path for the token file.
-const TOKEN_FILE_PATH: &str = "token.txt";
 
 /// The user ID of the bot maintainer.
 const MAINTAINER_USER_ID: u64 = 437067064;
@@ -53,19 +53,32 @@ struct ConfigParameters {
 }
 
 /// The main function for the bot, using Tokio.
-#[tokio::main]
-async fn main() {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> std::io::Result<()> {
+    // Parse command-line arguments
+    let args = args::Args::parse();
+
     // Initialize logging
     pretty_env_logger::init();
-    log::info!("Starting dispatching birthday reminder bot...");
 
     // Set configuration parameters
     let parameters = ConfigParameters {
-        bot_maintainer: UserId(MAINTAINER_USER_ID),
+        bot_maintainer: UserId(args.maintainer_user_id.unwrap_or(MAINTAINER_USER_ID)),
+    };
+
+    log::info!("Bot maintainer user ID: {}", parameters.bot_maintainer);
+
+    // Get the bot token
+    let token = match utils::get_token(args.token_path) {
+        Ok(token) => token,
+        Err(e) => {
+            log::error!("Failed to get the bot token: {}", e);
+            return Err(e);
+        }
     };
 
     // Create a new bot instance
-    let bot = Bot::new(utils::get_token(TOKEN_FILE_PATH));
+    let bot = Bot::new(token);
     let bot_cloned = bot.clone();
 
     // Create a thread-safe map of chat IDs to bot states and birthdays
@@ -84,10 +97,13 @@ async fn main() {
         }
     });
 
+    log::info!("Birthday reminder task successfully spawned");
+
     // Build the handler for the bot
     let handler = build_handler(Arc::clone(&birthdays_map));
 
     // Create and dispatch the bot using the configured dispatcher
+    log::info!("Starting dispatching birthday reminder bot...");
     Dispatcher::builder(bot, handler)
         .dependencies(dptree::deps![parameters])
         .default_handler(|upd| async move {
@@ -100,6 +116,8 @@ async fn main() {
         .build()
         .dispatch()
         .await;
+
+    Ok(())
 }
 
 /// Builds the handler for processing bot updates.
