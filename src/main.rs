@@ -32,7 +32,7 @@ const GREETINGS_MSG: &str =
 
 const JSON_MSG: &str =
     "Отправьте мне заполненный JSON файл с указанием дней рождений. Я отправил вам пример того, \
-как должен выглядить файл";
+как должен выглядеть файл";
 
 /// Represents a birthday with a name, date, and username.
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -396,7 +396,7 @@ async fn handle_document(
                     bot.send_message(
                         msg.chat.id,
                         "Дни рождения успешно загружены🎉 \
-                    Напоминания будут приходить за один день в 7:00 UTC",
+                    Напоминания будут приходить ровно в день рождение в 7:00 UTC",
                     )
                     .await?;
                 }
@@ -554,8 +554,6 @@ async fn send_birthday_reminders(
         // Sleep until the next reminder time.
         tokio::time::sleep(duration_until_next_run).await;
 
-        // Determine birthdays for the next day.
-        let tomorrow = (Utc::now() + Duration::days(1)).format("%d-%m").to_string();
         let mut output = Vec::new();
         {
             let b_map = birthdays_map.read().await;
@@ -563,7 +561,7 @@ async fn send_birthday_reminders(
             for (chat_id, (state, vec)) in b_map.iter() {
                 if State::Active == *state {
                     for birthday in vec.birthdays.iter() {
-                        if birthday.date == tomorrow {
+                        if birthday.date == Utc::now().format("%d-%m").to_string() {
                             let username_text = if !birthday.username.is_empty() {
                                 format!("({})", birthday.username)
                             } else {
@@ -571,7 +569,7 @@ async fn send_birthday_reminders(
                             };
 
                             let text = format!(
-                                "Завтра день рождения у замечательного человека {} {}!🎉",
+                                "Поздравьте сегодня замечательного человека с днем рождения {} {}!🎉",
                                 birthday.name, username_text
                             );
                             output.push((*chat_id, text));
