@@ -140,10 +140,13 @@ fn build_handler(
             dptree::filter_async(|cfg: ConfigParameters, msg: Message, bot: Bot| async move {
                 if let Some(user) = msg.from() {
                     user.id == cfg.bot_maintainer
-                        || (msg.chat.is_group()
+                        || ((msg.chat.is_group()
+                            || msg.chat.is_supergroup()
+                            || msg.chat.is_channel())
                             && utils::is_admin(&bot, msg.chat.id, user.id)
                                 .await
                                 .unwrap_or_default())
+                        || msg.chat.is_chat()
                 } else {
                     false
                 }
