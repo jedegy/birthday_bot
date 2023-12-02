@@ -1,9 +1,12 @@
 use teloxide::prelude::{ChatId, Request, Requester, UserId};
 use teloxide::types::Chat;
 use teloxide::{Bot, RequestError};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::RwLock;
 
 use std::io::BufRead;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /// Function formats admin commands description
 ///
@@ -109,4 +112,54 @@ pub fn get_token(path: Option<PathBuf>) -> std::io::Result<String> {
             }
         }
     }
+}
+
+/// Saves the data to a JSON file.
+///
+/// # Arguments
+///
+/// * `data` - The data to save.
+/// * `backup_file_path` - The path to the JSON file.
+///
+/// # Returns
+///
+/// A `Result` indicating the data was saved or not.
+pub async fn save_to_json(
+    data: super::BirthdaysMap,
+    backup_file_path: &PathBuf,
+) -> Result<(), std::io::Error> {
+    let data_read = data.read().await;
+    log::debug!("{:?}", data_read);
+    let json = serde_json::to_string(&*data_read)?;
+
+    let mut file = tokio::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(backup_file_path)
+        .await?;
+
+    file.write_all(json.as_bytes()).await?;
+    Ok(())
+}
+
+/// Loads the data from a JSON file.
+///
+/// # Arguments
+///
+/// * `backup_file_path` - The path to the JSON file.
+///
+/// # Returns
+///
+/// A `Result` indicating the data was loaded or not.
+pub async fn load_from_json(
+    backup_file_path: &PathBuf,
+) -> Result<super::BirthdaysMap, std::io::Error> {
+    let mut file = tokio::fs::File::open(backup_file_path).await?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).await?;
+
+    let data = Arc::new(RwLock::new(serde_json::from_str(&contents)?));
+    log::debug!("{:?}", data);
+    Ok(data)
 }

@@ -4,7 +4,7 @@ mod tasks;
 mod utils;
 
 use clap::Parser;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use teloxide::{
     dispatching::{DpHandlerDescription, HandlerExt, UpdateFilterExt},
     dptree,
@@ -15,17 +15,20 @@ use teloxide::{
 use tokio::sync::RwLock;
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 
 /// The user ID of the bot maintainer.
 const MAINTAINER_USER_ID: u64 = 437067064;
 
+/// The name of the environment variable for the bot token.
 const BOT_TOKEN_ENV_VAR: &str = "BIRTHDAY_REMINDER_BOT_TOKEN";
 
+/// A thread-safe map of chat IDs to bot states and birthdays.
 type BirthdaysMap = Arc<RwLock<HashMap<ChatId, (State, Birthdays)>>>;
 
 /// Represents a birthday with a name, date, and username.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 struct Birthday {
     name: String,
     date: String,
@@ -33,13 +36,13 @@ struct Birthday {
 }
 
 /// Represents a list of birthdays.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 struct Birthdays {
     birthdays: Vec<Birthday>,
 }
 
 /// Represents the state of the bot.
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 enum State {
     Active,
     Disabled,
@@ -77,6 +80,15 @@ async fn main() -> std::io::Result<()> {
         }
     };
 
+    // Load data from backup file if it exists
+    if Path::new(&args.backup_path).exists() {
+        log::info!("Loading data from backup file {:?}...", args.backup_path);
+        match utils::load_from_json(&args.backup_path).await {
+            Ok(_) => log::info!("Data from backup file successfully loaded"),
+            Err(e) => log::error!("Error during loading backup file: {}", e),
+        }
+    }
+
     // Create a new bot instance
     let bot = Bot::new(token);
     let bot_cloned = bot.clone();
@@ -84,6 +96,7 @@ async fn main() -> std::io::Result<()> {
     // Create a thread-safe map of chat IDs to bot states and birthdays
     let birthdays_map = Arc::new(RwLock::new(HashMap::<ChatId, (State, Birthdays)>::new()));
     let birthdays_map_cloned = Arc::clone(&birthdays_map);
+    let birthdays_map_cloned_for_backup = Arc::clone(&birthdays_map);
 
     // Spawn a Tokio task for sending birthday reminders
     tokio::spawn(async move {
@@ -91,13 +104,21 @@ async fn main() -> std::io::Result<()> {
             match tasks::send_birthday_reminders(bot_cloned.clone(), birthdays_map_cloned.clone())
                 .await
             {
-                Ok(_) => break,
-                Err(e) => log::error!("Error sending birthday reminders: {}", e),
+                Ok(_) => (),
+                Err(e) => log::error!("Error during sending birthday reminders: {}", e),
             }
         }
     });
 
     log::info!("Birthday reminder task successfully spawned");
+
+    // Spawn a Tokio task for daily backup
+    tokio::spawn(tasks::daily_backup_task(
+        birthdays_map_cloned_for_backup.clone(),
+        args.backup_path,
+    ));
+
+    log::info!("Daily backup task successfully spawned");
 
     // Build the handler for the bot
     let handler = build_handler(Arc::clone(&birthdays_map));

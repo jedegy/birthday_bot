@@ -9,6 +9,10 @@ pub struct Args {
     #[arg(short, long)]
     pub token_path: Option<PathBuf>,
 
+    /// The path to the backup file.
+    #[arg(short, long)]
+    pub backup_path: PathBuf,
+
     /// The user ID of the bot maintainer.
     #[arg(short, long)]
     pub maintainer_user_id: Option<u64>,

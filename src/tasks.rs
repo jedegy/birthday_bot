@@ -1,6 +1,38 @@
 use chrono::{Duration, Utc};
+use std::path::PathBuf;
 use teloxide::prelude::Requester;
 use teloxide::Bot;
+
+/// This function saves the data to a JSON file on a daily basis at 12:00 PM UTC.
+///
+/// # Arguments
+///
+/// * `data` - The data to save.
+/// * `path` - The path to the JSON file.
+///
+/// # Returns
+///
+/// A `Result` indicating the data was saved or not.
+pub async fn daily_backup_task(data: super::BirthdaysMap, backup_path: PathBuf) {
+    loop {
+        // Calculate the time for the next backup.
+        let now = Utc::now().naive_utc();
+        let next_run = (now + Duration::days(1))
+            .date()
+            .and_hms_opt(12, 0, 0)
+            .unwrap_or_default();
+        let duration_until_next_run = (next_run - now).to_std().unwrap_or_default();
+
+        // Wait until the next backup time.
+        tokio::time::sleep(duration_until_next_run).await;
+
+        // Save data to JSON
+        match crate::utils::save_to_json(data.clone(), &backup_path).await {
+            Ok(_) => log::info!("Birthday data successfully saved to JSON"),
+            Err(e) => log::error!("Error during saving birthday data to JSON: {}", e),
+        }
+    }
+}
 
 /// Sends birthday reminders on a daily basis.
 ///
@@ -21,7 +53,7 @@ pub async fn send_birthday_reminders(
         let next_run = (now + Duration::days(1))
             .date()
             .and_hms_opt(7, 0, 0)
-            .unwrap();
+            .unwrap_or_default();
         let duration_until_next_run = (next_run - now).to_std().unwrap_or_default();
 
         // Sleep until the next reminder time.
