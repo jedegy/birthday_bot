@@ -30,20 +30,30 @@ type BirthdaysMap = Arc<RwLock<HashMap<ChatId, (State, Birthdays)>>>;
 /// Represents a birthday with a name, date, and username.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 struct Birthday {
+    /// The name of the person.
     name: String,
+    /// The date of the birthday.
     date: String,
+    /// The username of the person.
     username: String,
 }
 
 /// Represents a list of birthdays.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 struct Birthdays {
+    /// The list of birthdays.
     birthdays: Vec<Birthday>,
 }
 
 impl Birthdays {
+    /// Returns the number of birthdays in the list.
     fn len(&self) -> usize {
         self.birthdays.len()
+    }
+
+    /// Returns a reference to the list of birthdays.
+    fn get_birthdays(&self) -> &Vec<Birthday> {
+        &self.birthdays
     }
 }
 

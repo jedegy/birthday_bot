@@ -33,7 +33,45 @@ pub async fn admin_commands_handler(
     match cmd {
         super::AdminCommands::Active => handle_active_command(bot, msg, cfg).await,
         super::AdminCommands::Disable => handle_disable_command(bot, msg, cfg).await,
+        super::AdminCommands::List => handle_list_command(bot, msg, cfg).await,
     }
+}
+
+/// Handles the `list` command for the bot.
+///
+/// # Arguments
+///
+/// * `bot` - The bot instance.
+/// * `msg` - The message triggering the command.
+/// * `cfg` - Configuration parameters for the bot.
+///
+/// # Returns
+///
+/// A `ResponseResult` indicating the success or failure of the command.
+async fn handle_list_command(bot: Bot, msg: Message, cfg: ConfigParameters) -> ResponseResult<()> {
+    let b_map = cfg.b_map.read().await;
+    let birthdays_default = Birthdays::default();
+    let birthdays = b_map
+        .get(&msg.chat.id)
+        .map(|(_, birthdays)| birthdays)
+        .unwrap_or(&birthdays_default);
+
+    if birthdays.len() == 0 {
+        bot.send_message(msg.chat.id, "Список дней рождений пуст")
+            .await?;
+    } else {
+        let mut reply_text = String::from("Список дней рождений:\n");
+        for (idx, birthday) in birthdays.get_birthdays().iter().enumerate() {
+            reply_text += format!(
+                "{}. {} - {} {}\n",
+                idx, birthday.name, birthday.date, birthday.username
+            )
+            .as_str();
+        }
+        bot.send_message(msg.chat.id, reply_text).await?;
+    }
+
+    Ok(())
 }
 
 /// Handles the activation command for the bot.

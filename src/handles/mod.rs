@@ -41,6 +41,8 @@ pub enum AdminCommands {
     Active,
     #[command(description = "Отключает уведомления о днях рождениях от меня")]
     Disable,
+    #[command(description = "Отображает список дней рождений")]
+    List,
 }
 
 /// Enum defining simple commands for the bot.
