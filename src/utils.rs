@@ -8,18 +8,21 @@ use std::io::BufRead;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-/// Function formats admin commands description
-///
-/// # Arguments
-///
-/// * `desc` - The description of admin commands
-/// * `place` - The place where bot is used
-pub fn format_admin_commands_desc(desc: &str, place: &str) -> String {
-    let mut result = String::new();
-    for line in desc.split_terminator('\n') {
-        result.push_str(&format!("{} {}\n", line, place));
+/// Represents places where bot is used
+pub enum Place {
+    Group,
+    Channel,
+    Chat,
+}
+
+impl std::fmt::Display for Place {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Place::Group => write!(f, "в группе"),
+            Place::Channel => write!(f, "в канале"),
+            Place::Chat => write!(f, "в чате"),
+        }
     }
-    result
 }
 
 /// Function checks that user has admin rights
@@ -59,14 +62,14 @@ pub fn is_maintainer(user_id: UserId) -> bool {
 ///
 /// # Returns
 ///
-/// A `String` indicating the place where bot is used.
-pub fn get_place(chat: &Chat) -> String {
+/// A `Place` where bot is used.
+pub fn get_place(chat: &Chat) -> Place {
     if chat.is_group() || chat.is_supergroup() {
-        "в этой группе".into()
+        Place::Group
     } else if chat.is_channel() {
-        "в этом канале".into()
+        Place::Channel
     } else {
-        "в этом чате".into()
+        Place::Chat
     }
 }
 
@@ -162,4 +165,26 @@ pub async fn load_from_json(
     let data = Arc::new(RwLock::new(serde_json::from_str(&contents)?));
     log::debug!("{:?}", data);
     Ok(data)
+}
+
+/// Returns the size in bytes of the birthday map.
+///
+/// # Arguments
+///
+/// * `birthday_map` - A thread-safe map of chat IDs to bot states and birthdays.
+///
+/// # Returns
+///
+/// The size in bytes of the birthday map.
+pub async fn birthday_map_estimate_size(birthday_map: super::BirthdaysMap) -> usize {
+    let map = birthday_map.read().await;
+    let mut size = std::mem::size_of_val(&map);
+
+    for (chat_id, (state, birthdays)) in map.iter() {
+        size += std::mem::size_of_val(chat_id)
+            + std::mem::size_of_val(state)
+            + std::mem::size_of_val(birthdays);
+    }
+
+    size
 }

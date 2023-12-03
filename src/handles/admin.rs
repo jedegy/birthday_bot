@@ -1,15 +1,40 @@
-use std::collections::hash_map::Entry;
 use teloxide::prelude::{Message, Requester, ResponseResult};
 use teloxide::types::InputFile;
 use teloxide::Bot;
 
 use crate::utils::get_place;
-use crate::{Birthdays, BirthdaysMap, State};
+use crate::{Birthdays, ConfigParameters, State};
+
+use std::collections::hash_map::Entry;
 
 /// The message to send when the user sends a JSON file.
 const JSON_MSG: &str =
     "Отправьте мне заполненный JSON файл с указанием дней рождений. Я отправил вам пример того, \
 как должен выглядеть файл";
+
+/// Handles admin commands for the bot.
+///
+/// # Arguments
+///
+/// * `bot` - The bot instance.
+/// * `msg` - The message triggering the command.
+/// * `cmd` - The specific command being processed.
+/// * `cfg` - Configuration parameters for the bot.
+///
+/// # Returns
+///
+/// A `ResponseResult` indicating the success or failure of the command.
+pub async fn admin_commands_handler(
+    bot: Bot,
+    msg: Message,
+    cmd: super::AdminCommands,
+    cfg: ConfigParameters,
+) -> ResponseResult<()> {
+    match cmd {
+        super::AdminCommands::Active => handle_active_command(bot, msg, cfg).await,
+        super::AdminCommands::Disable => handle_disable_command(bot, msg, cfg).await,
+    }
+}
 
 /// Handles the activation command for the bot.
 ///
@@ -17,22 +42,22 @@ const JSON_MSG: &str =
 ///
 /// * `bot` - The bot instance.
 /// * `msg` - The message triggering the command.
-/// * `birthday_map` - A thread-safe map of chat IDs to bot states and birthdays.
+/// * `cfg` - Configuration parameters for the bot.
 ///
 /// # Returns
 ///
 /// A `ResponseResult` indicating the success or failure of the command.
-pub async fn handle_active_command(
+async fn handle_active_command(
     bot: Bot,
     msg: Message,
-    birthday_map: BirthdaysMap,
+    cfg: ConfigParameters,
 ) -> ResponseResult<()> {
     log::info!("Active command received from chat id {}", msg.chat.id);
 
     let place = get_place(&msg.chat);
 
     let (reply_msg, send_sample) = {
-        let mut map = birthday_map.write().await;
+        let mut map = cfg.b_map.write().await;
 
         map.get_mut(&msg.chat.id)
             .map(|(state, birthdays)| match state {
@@ -71,22 +96,22 @@ pub async fn handle_active_command(
 ///
 /// * `bot` - The bot instance.
 /// * `msg` - The message triggering the command.
-/// * `birthday_map` - A thread-safe map of chat IDs to bot states and birthdays.
+/// * `cfg` - Configuration parameters for the bot.
 ///
 /// # Returns
 ///
 /// A `ResponseResult` indicating the success or failure of the command.
-pub async fn handle_disable_command(
+async fn handle_disable_command(
     bot: Bot,
     msg: Message,
-    birthday_map: BirthdaysMap,
+    cfg: ConfigParameters,
 ) -> ResponseResult<()> {
     log::info!("Disable command received from chat id {}", msg.chat.id);
 
     let place = get_place(&msg.chat);
 
     let reply_text = {
-        let mut map = birthday_map.write().await;
+        let mut map = cfg.b_map.write().await;
         match map.entry(msg.chat.id) {
             Entry::Occupied(mut entry) => {
                 let (state, _) = entry.get_mut();
@@ -106,5 +131,6 @@ pub async fn handle_disable_command(
     };
 
     bot.send_message(msg.chat.id, &reply_text).await?;
+
     Ok(())
 }

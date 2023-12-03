@@ -1,7 +1,9 @@
 use chrono::{Duration, Utc};
-use std::path::PathBuf;
 use teloxide::prelude::{ChatId, Requester};
 use teloxide::Bot;
+use tokio::task::JoinHandle;
+
+use std::path::PathBuf;
 
 /// Constant for the birthday reminder task period in seconds.
 const BIRTHDAY_REMINDER_TASK_PERIOD_SEC: i64 = 60 * 60 * 24;
@@ -10,7 +12,57 @@ const BIRTHDAY_REMINDER_TASK_PERIOD_SEC: i64 = 60 * 60 * 24;
 const BACKUP_TASK_PERIOD_SEC: i64 = 60 * 60 * 24;
 
 /// Constant for the health check task period in seconds.
-const HEALTH_CHECK_TASK_PERIOD_SEC: i64 = 60 * 5;
+const HEALTH_CHECK_TASK_PERIOD_SEC: i64 = 60 * 60 * 24;
+
+/// The task manager for the bot.
+pub struct Manager {
+    /// The birthday reminder task.
+    birthday_reminder: JoinHandle<()>,
+    /// The health check task.
+    health_check: JoinHandle<()>,
+    /// The daily backup task.
+    daily_backup: JoinHandle<()>,
+}
+
+impl Manager {
+    /// Creates a new `Manager` instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `birthday_reminder` - The birthday reminder task.
+    /// * `health_check` - The health check task.
+    /// * `daily_backup` - The daily backup task.
+    ///
+    /// # Returns
+    ///
+    /// A new `Manager` instance.
+    pub fn new(
+        birthday_reminder: JoinHandle<()>,
+        health_check: JoinHandle<()>,
+        daily_backup: JoinHandle<()>,
+    ) -> Self {
+        Self {
+            birthday_reminder,
+            health_check,
+            daily_backup,
+        }
+    }
+
+    /// Returns whether the birthday reminder task is active.
+    pub fn is_birthday_reminder_active(&self) -> bool {
+        !self.birthday_reminder.is_finished()
+    }
+
+    /// Returns whether the health check task is active.
+    pub fn is_health_check_active(&self) -> bool {
+        !self.health_check.is_finished()
+    }
+
+    /// Returns whether the daily backup task is active.
+    pub fn is_daily_backup_active(&self) -> bool {
+        !self.daily_backup.is_finished()
+    }
+}
 
 /// Sends a health check message to the maintainer of the bot.
 ///

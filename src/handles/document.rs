@@ -3,7 +3,7 @@ use teloxide::net::Download;
 use teloxide::prelude::{Message, Request, Requester, ResponseResult};
 use teloxide::Bot;
 
-use crate::{Birthdays, BirthdaysMap, State};
+use crate::{Birthdays, ConfigParameters, State};
 
 /// Handles document messages for the bot.
 ///
@@ -11,16 +11,16 @@ use crate::{Birthdays, BirthdaysMap, State};
 ///
 /// * `bot` - The bot instance.
 /// * `msg` - The message containing the document.
-/// * `b_map` - A thread-safe map of chat IDs to bot states and birthdays.
+/// * `cfg` - Configuration parameters for the bot.
 ///
 /// # Returns
 ///
 /// A `ResponseResult` indicating the success or failure of the command.
-pub async fn handle_document(bot: Bot, msg: Message, b_map: BirthdaysMap) -> ResponseResult<()> {
+pub async fn document_handler(bot: Bot, msg: Message, cfg: ConfigParameters) -> ResponseResult<()> {
     if let Some(doc) = msg.document() {
         log::info!("Document received from chat id {}", msg.chat.id);
 
-        let mut b_map = b_map.write().await;
+        let mut b_map = cfg.b_map.write().await;
 
         let download_file = b_map
             .get(&msg.chat.id)
