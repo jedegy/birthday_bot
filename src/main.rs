@@ -91,7 +91,8 @@ async fn main() -> std::io::Result<()> {
 
     // Create a new bot instance
     let bot = Bot::new(token);
-    let bot_cloned = bot.clone();
+    let bot_for_br = bot.clone();
+    let bot_for_hc = bot.clone();
 
     // Create a thread-safe map of chat IDs to bot states and birthdays
     let birthdays_map = Arc::new(RwLock::new(HashMap::<ChatId, (State, Birthdays)>::new()));
@@ -101,7 +102,7 @@ async fn main() -> std::io::Result<()> {
     // Spawn a Tokio task for sending birthday reminders
     tokio::spawn(async move {
         loop {
-            match tasks::send_birthday_reminders(bot_cloned.clone(), birthdays_map_cloned.clone())
+            match tasks::send_birthday_reminders(bot_for_br.clone(), birthdays_map_cloned.clone())
                 .await
             {
                 Ok(_) => (),
@@ -111,6 +112,11 @@ async fn main() -> std::io::Result<()> {
     });
 
     log::info!("Birthday reminder task successfully spawned");
+
+    // Spawn a Tokio task for health check
+    tokio::spawn(tasks::health_check_task(bot_for_hc));
+
+    log::info!("Health check task successfully spawned");
 
     // Spawn a Tokio task for daily backup
     tokio::spawn(tasks::daily_backup_task(

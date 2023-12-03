@@ -1,7 +1,48 @@
 use chrono::{Duration, Utc};
 use std::path::PathBuf;
-use teloxide::prelude::Requester;
+use teloxide::prelude::{ChatId, Requester};
 use teloxide::Bot;
+
+/// Constant for the birthday reminder task period in seconds.
+const BIRTHDAY_REMINDER_TASK_PERIOD_SEC: i64 = 60 * 60 * 24;
+
+/// Constant for the backup task period in seconds.
+const BACKUP_TASK_PERIOD_SEC: i64 = 60 * 60 * 24;
+
+/// Constant for the health check task period in seconds.
+const HEALTH_CHECK_TASK_PERIOD_SEC: i64 = 60 * 5;
+
+/// Sends a health check message to the maintainer of the bot.
+///
+/// # Arguments
+///
+/// * `bot` - The bot instance.
+///
+/// This function sends a health check message to the maintainer of the bot
+/// at 7:10 AM UTC daily.
+pub async fn health_check_task(bot: Bot) {
+    loop {
+        // Calculate the time for the next health check.
+        let now = Utc::now().naive_utc();
+        let next_run = (now + Duration::seconds(HEALTH_CHECK_TASK_PERIOD_SEC))
+            .date()
+            .and_hms_opt(7, 10, 0)
+            .unwrap_or_default();
+        let duration_until_next_run = (next_run - now).to_std().unwrap_or_default();
+
+        // Sleep until the next health check time.
+        tokio::time::sleep(duration_until_next_run).await;
+
+        // Send a health check message.
+        match bot
+            .send_message(ChatId(super::MAINTAINER_USER_ID as i64), "I'm alive!")
+            .await
+        {
+            Ok(_) => log::info!("Health check message sent successfully"),
+            Err(e) => log::error!("Error during sending health check message: {}", e),
+        }
+    }
+}
 
 /// This function saves the data to a JSON file on a daily basis at 12:00 PM UTC.
 ///
@@ -17,7 +58,7 @@ pub async fn daily_backup_task(data: super::BirthdaysMap, backup_path: PathBuf) 
     loop {
         // Calculate the time for the next backup.
         let now = Utc::now().naive_utc();
-        let next_run = (now + Duration::days(1))
+        let next_run = (now + Duration::seconds(BACKUP_TASK_PERIOD_SEC))
             .date()
             .and_hms_opt(12, 0, 0)
             .unwrap_or_default();
@@ -50,7 +91,7 @@ pub async fn send_birthday_reminders(
     loop {
         // Calculate the time for the next reminder.
         let now = Utc::now().naive_utc();
-        let next_run = (now + Duration::days(1))
+        let next_run = (now + Duration::seconds(BIRTHDAY_REMINDER_TASK_PERIOD_SEC))
             .date()
             .and_hms_opt(7, 0, 0)
             .unwrap_or_default();
