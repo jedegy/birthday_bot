@@ -1,10 +1,14 @@
 mod args;
+mod birthday;
 mod handles;
+mod state;
 mod tasks;
 mod utils;
 
+pub use birthday::{Birthdays, BirthdaysMap};
+pub use state::{GlobalState, State};
+
 use clap::Parser;
-use serde::{Deserialize, Serialize};
 use teloxide::{
     dispatching::{DpHandlerDescription, HandlerExt, UpdateFilterExt},
     dptree,
@@ -24,47 +28,6 @@ const MAINTAINER_USER_ID: u64 = 437067064;
 /// The name of the environment variable for the bot token.
 const BOT_TOKEN_ENV_VAR: &str = "BIRTHDAY_REMINDER_BOT_TOKEN";
 
-/// A thread-safe map of chat IDs to bot states and birthdays.
-type BirthdaysMap = Arc<RwLock<HashMap<ChatId, (State, Birthdays)>>>;
-
-/// Represents a birthday with a name, date, and username.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-struct Birthday {
-    /// The name of the person.
-    name: String,
-    /// The date of the birthday.
-    date: String,
-    /// The username of the person.
-    username: String,
-}
-
-/// Represents a list of birthdays.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-struct Birthdays {
-    /// The list of birthdays.
-    birthdays: Vec<Birthday>,
-}
-
-impl Birthdays {
-    /// Returns the number of birthdays in the list.
-    fn len(&self) -> usize {
-        self.birthdays.len()
-    }
-
-    /// Returns a reference to the list of birthdays.
-    fn get_birthdays(&self) -> &Vec<Birthday> {
-        &self.birthdays
-    }
-}
-
-/// Represents the state of the bot.
-#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
-enum State {
-    Active,
-    Disabled,
-    WaitingJson,
-}
-
 /// Represents the configuration parameters for the bot.
 #[derive(Clone)]
 struct ConfigParameters {
@@ -74,6 +37,8 @@ struct ConfigParameters {
     task_manager: Arc<tasks::Manager>,
     /// The birthdays map for the bot.
     b_map: BirthdaysMap,
+    /// The global state for the bot.
+    state: GlobalState,
 }
 
 /// The main function for the bot, using Tokio.
@@ -140,6 +105,7 @@ async fn main() -> std::io::Result<()> {
         bot_maintainer: UserId(args.maintainer_user_id.unwrap_or(MAINTAINER_USER_ID)),
         task_manager: Arc::from(task_manager),
         b_map: birthdays_map,
+        state: GlobalState::Normal,
     };
 
     log::info!("Bot maintainer user ID: {}", parameters.bot_maintainer);

@@ -158,7 +158,7 @@ pub async fn send_birthday_reminders(
 
             for (chat_id, (state, vec)) in b_map.iter() {
                 if super::State::Active == *state {
-                    for birthday in vec.birthdays.iter() {
+                    for birthday in vec.get_birthdays().iter() {
                         if birthday.date == Utc::now().format("%d-%m").to_string() {
                             let username_text = if !birthday.username.is_empty() {
                                 format!("({})", birthday.username)

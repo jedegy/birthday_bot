@@ -1,7 +1,7 @@
 use teloxide::prelude::{Message, Requester, ResponseResult};
 use teloxide::Bot;
 
-use crate::ConfigParameters;
+use crate::{ConfigParameters, GlobalState};
 
 /// Handles maintainer commands for the bot.
 ///
@@ -42,7 +42,11 @@ async fn handle_status_command(
     msg: Message,
     cfg: ConfigParameters,
 ) -> ResponseResult<()> {
-    let mut reply_text = format!("Бот активен и работает в штатном режиме\n\n");
+    let mut reply_text = if cfg.state == GlobalState::Normal {
+        format!("Бот активен и работает в штатном режиме. 🟢\n\n")
+    } else {
+        format!("Бот активен, но предел по памяти превышен! 🟡\n\n")
+    };
 
     reply_text += "Статус внутренних задач:\n";
 
@@ -65,8 +69,9 @@ async fn handle_status_command(
     };
 
     reply_text += format!(
-        "\nУтилизация Birthday Map в байтах: {}\n\n",
-        crate::utils::birthday_map_estimate_size(cfg.b_map.clone()).await
+        "\nУтилизация Birthday Map в байтах: {} (лимит {})\n\n",
+        crate::utils::birthday_map_estimate_size(cfg.b_map.clone()).await,
+        crate::birthday::BIRTHDAY_MAP_LIMIT
     )
     .as_str();
 

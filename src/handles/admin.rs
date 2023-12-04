@@ -3,7 +3,7 @@ use teloxide::types::InputFile;
 use teloxide::Bot;
 
 use crate::utils::get_place;
-use crate::{Birthdays, ConfigParameters, State};
+use crate::{Birthdays, ConfigParameters, GlobalState, State};
 
 use std::collections::hash_map::Entry;
 
@@ -11,6 +11,10 @@ use std::collections::hash_map::Entry;
 const JSON_MSG: &str =
     "Отправьте мне заполненный JSON файл с указанием дней рождений. Я отправил вам пример того, \
 как должен выглядеть файл";
+
+const BUSY_MSG: &str =
+    "К сожалению, в данный момент я не могу принимать новые запросы из-за высокой нагрузки 😞 \
+Попробуйте повторить запрос позже";
 
 /// Handles admin commands for the bot.
 ///
@@ -88,10 +92,11 @@ async fn handle_list_command(bot: Bot, msg: Message, cfg: ConfigParameters) -> R
 async fn handle_active_command(
     bot: Bot,
     msg: Message,
-    cfg: ConfigParameters,
+    mut cfg: ConfigParameters,
 ) -> ResponseResult<()> {
     log::info!("Active command received from chat id {}", msg.chat.id);
 
+    let b_map_size = crate::utils::birthday_map_estimate_size(cfg.b_map.clone()).await;
     let place = get_place(&msg.chat);
 
     let (reply_msg, send_sample) = {
@@ -99,9 +104,14 @@ async fn handle_active_command(
 
         map.get_mut(&msg.chat.id)
             .map(|(state, birthdays)| match state {
-                State::Active | State::Disabled if birthdays.birthdays.is_empty() => {
-                    *state = State::WaitingJson;
-                    (JSON_MSG.into(), false)
+                State::Active | State::Disabled if birthdays.get_birthdays().is_empty() => {
+                    if b_map_size >= crate::birthday::BIRTHDAY_MAP_LIMIT {
+                        cfg.state = GlobalState::Busy;
+                        (BUSY_MSG.into(), false)
+                    } else {
+                        *state = State::WaitingJson;
+                        (JSON_MSG.into(), false)
+                    }
                 }
                 State::Disabled => {
                     *state = State::Active;
@@ -114,8 +124,13 @@ async fn handle_active_command(
                 State::WaitingJson => (JSON_MSG.into(), false),
             })
             .unwrap_or({
-                map.insert(msg.chat.id, (State::WaitingJson, Birthdays::default()));
-                (JSON_MSG.into(), true)
+                if b_map_size >= crate::birthday::BIRTHDAY_MAP_LIMIT {
+                    cfg.state = GlobalState::Busy;
+                    (BUSY_MSG.into(), false)
+                } else {
+                    map.insert(msg.chat.id, (State::WaitingJson, Birthdays::default()));
+                    (JSON_MSG.into(), true)
+                }
             })
     };
     bot.send_message(msg.chat.id, reply_msg).await?;
