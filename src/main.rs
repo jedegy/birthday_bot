@@ -60,23 +60,26 @@ async fn main() -> std::io::Result<()> {
     };
 
     // Load data from backup file if it exists
-    if Path::new(&args.backup_path).exists() {
+    let birthdays_map = if Path::new(&args.backup_path).exists() {
         log::info!("Loading data from backup file {:?}...", args.backup_path);
-        match utils::load_from_json(&args.backup_path).await {
-            Ok(_) => log::info!("Data from backup file successfully loaded"),
-            Err(e) => log::error!("Error during loading backup file: {}", e),
-        }
-    }
+        utils::load_from_json(&args.backup_path)
+            .await
+            .map_err(|e| {
+                log::error!("Error during loading backup file: {}", e);
+                e
+            })
+            .unwrap_or_else(|_| Arc::new(RwLock::new(HashMap::<ChatId, (State, Birthdays)>::new())))
+    } else {
+        // Create a thread-safe map of chat IDs to bot states and birthdays
+        Arc::new(RwLock::new(HashMap::<ChatId, (State, Birthdays)>::new()))
+    };
+    let birthdays_map_cloned = Arc::clone(&birthdays_map);
+    let birthdays_map_cloned_for_backup = Arc::clone(&birthdays_map);
 
     // Create a new bot instance
     let bot = Bot::new(token);
     let bot_for_br = bot.clone();
     let bot_for_hc = bot.clone();
-
-    // Create a thread-safe map of chat IDs to bot states and birthdays
-    let birthdays_map = Arc::new(RwLock::new(HashMap::<ChatId, (State, Birthdays)>::new()));
-    let birthdays_map_cloned = Arc::clone(&birthdays_map);
-    let birthdays_map_cloned_for_backup = Arc::clone(&birthdays_map);
 
     // Create a task manager
     let task_manager = tasks::Manager::new(
