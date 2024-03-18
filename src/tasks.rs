@@ -1,9 +1,9 @@
+use std::path::PathBuf;
+
 use chrono::{Duration, Utc};
 use teloxide::prelude::{ChatId, Requester};
 use teloxide::Bot;
 use tokio::task::JoinHandle;
-
-use std::path::PathBuf;
 
 /// Constant for the birthday reminder task period in seconds.
 const BIRTHDAY_REMINDER_TASK_PERIOD_SEC: i64 = 60 * 60 * 24;
@@ -96,17 +96,17 @@ pub async fn health_check_task(bot: Bot) {
     }
 }
 
-/// This function saves the data to a JSON file on a daily basis at 12:00 PM UTC.
+/// This function saves the birthdays map to a JSON file on a daily basis at 12:00 PM UTC.
 ///
 /// # Arguments
 ///
-/// * `data` - The data to save.
+/// * `map` - The thread-safe map of chat IDs to bot states and birthdays.
 /// * `path` - The path to the JSON file.
 ///
 /// # Returns
 ///
 /// A `Result` indicating the data was saved or not.
-pub async fn daily_backup_task(data: super::BirthdaysMap, backup_path: PathBuf) {
+pub async fn daily_backup_task(map: super::BirthdaysMapThreadSafe, backup_path: PathBuf) {
     loop {
         // Calculate the time for the next backup.
         let now = Utc::now().naive_utc();
@@ -120,9 +120,9 @@ pub async fn daily_backup_task(data: super::BirthdaysMap, backup_path: PathBuf) 
         tokio::time::sleep(duration_until_next_run).await;
 
         // Save data to JSON
-        match crate::utils::save_to_json(data.clone(), &backup_path).await {
-            Ok(_) => log::info!("Birthday data successfully saved to JSON"),
-            Err(e) => log::error!("Error during saving birthday data to JSON: {}", e),
+        match crate::utils::save_to_json(map.clone(), &backup_path).await {
+            Ok(_) => log::info!("Birthdays data successfully saved to JSON"),
+            Err(e) => log::error!("Error during saving birthdays data to JSON: {}", e),
         }
     }
 }
@@ -138,7 +138,7 @@ pub async fn daily_backup_task(data: super::BirthdaysMap, backup_path: PathBuf) 
 /// with an active bot state. The reminders are sent at 7:00 AM UTC daily.
 pub async fn send_birthday_reminders(
     bot: Bot,
-    birthdays_map: super::BirthdaysMap,
+    birthdays_map: super::BirthdaysMapThreadSafe,
 ) -> Result<(), Box<dyn std::error::Error>> {
     loop {
         // Calculate the time for the next reminder.
@@ -156,9 +156,9 @@ pub async fn send_birthday_reminders(
         {
             let b_map = birthdays_map.read().await;
 
-            for (chat_id, (state, vec)) in b_map.iter() {
+            for (chat_id, (state, birthdays)) in b_map.iter() {
                 if super::State::Active == *state {
-                    for birthday in vec.get_birthdays().iter() {
+                    for birthday in birthdays.iter() {
                         if birthday.date == Utc::now().format("%d-%m").to_string() {
                             let username_text = if !birthday.username.is_empty() {
                                 format!("({})", birthday.username)

@@ -4,11 +4,11 @@ use teloxide::utils::command::BotCommands;
 use teloxide::Bot;
 
 mod admin;
-mod document;
+mod common;
 mod maintainer;
 
 pub use admin::admin_commands_handler;
-pub use document::document_handler;
+pub use common::common_commands_handler;
 pub use maintainer::maintainer_commands_handler;
 
 /// The file path for the sample JSON birthdays file.
@@ -25,6 +25,11 @@ const CREATOR_MESSAGE: &str = "Вы мой создатель!🙏";
 const ADMIN_INTERACTION_PREFIX: &str = "Вы можете взаимодействовать со мной ";
 const NO_INTERACTION_PREFIX: &str = "К сожалению, вы не можете взаимодействовать со мной ";
 
+/// The message to send when the bot is busy (limit of birthdays reached).
+const BUSY_MSG: &str =
+    "К сожалению, в данный момент я не могу принимать новые запросы из-за высокой нагрузки 😞 \
+Попробуйте повторить запрос позже";
+
 /// Enum defining maintainer commands for the bot.
 #[derive(BotCommands, Clone)]
 #[command(rename_rule = "lowercase")]
@@ -37,6 +42,12 @@ pub enum MaintainerCommands {
 #[derive(BotCommands, Clone)]
 #[command(rename_rule = "lowercase")]
 pub enum AdminCommands {
+    #[command(description = "Добавляет день рождения в список")]
+    Add,
+    #[command(description = "Добавляет несколько дней рождений в список используя JSON файл")]
+    AddMany,
+    #[command(description = "Отлючает режим добавления дней рождений")]
+    Cancel,
     #[command(description = "Включает уведомления о днях рождениях от меня")]
     Active,
     #[command(description = "Отключает уведомления о днях рождениях от меня")]
@@ -106,7 +117,9 @@ pub async fn base_commands_handler(
     Ok(())
 }
 
-/// Function handles `check control` command
+/// Function handles `check control` command.
+/// This function validates the user's permissions for interacting with the bot and sends a message
+/// to the chat with the result.
 ///
 /// # Arguments
 ///
@@ -138,7 +151,9 @@ async fn handle_check_control_command(
     Ok(())
 }
 
-/// Function handles `help` command
+/// Function handles `help` command.
+/// This function sends a message to the chat with the available commands for the bot depending on
+/// the user's permissions.
 ///
 /// # Arguments
 ///

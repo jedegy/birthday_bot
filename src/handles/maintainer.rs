@@ -1,7 +1,7 @@
 use teloxide::prelude::{Message, Requester, ResponseResult};
 use teloxide::Bot;
 
-use crate::{ConfigParameters, GlobalState};
+use crate::ConfigParameters;
 
 /// Handles maintainer commands for the bot.
 ///
@@ -27,6 +27,8 @@ pub async fn maintainer_commands_handler(
 }
 
 /// Handles the `status` command for the bot.
+/// This function sends a message to the chat with the current status of the bot and its internal
+/// tasks.
 ///
 /// # Arguments
 ///
@@ -42,11 +44,12 @@ async fn handle_status_command(
     msg: Message,
     cfg: ConfigParameters,
 ) -> ResponseResult<()> {
-    let mut reply_text = if cfg.state == GlobalState::Normal {
-        format!("Бот активен и работает в штатном режиме. 🟢\n\n")
-    } else {
-        format!("Бот активен, но предел по памяти превышен! 🟡\n\n")
-    };
+    let mut reply_text =
+        if cfg.b_map.read().await.estimate_size() < crate::birthday::BIRTHDAY_MAP_LIMIT {
+            "Бот активен и работает в штатном режиме. 🟢\n\n".to_string()
+        } else {
+            "Бот активен, но предел по памяти превышен! 🟡\n\n".to_string()
+        };
 
     reply_text += "Статус внутренних задач:\n";
 
@@ -70,7 +73,7 @@ async fn handle_status_command(
 
     reply_text += format!(
         "\nУтилизация Birthday Map в байтах: {} (лимит {})\n\n",
-        crate::utils::birthday_map_estimate_size(cfg.b_map.clone()).await,
+        cfg.b_map.read().await.estimate_size(),
         crate::birthday::BIRTHDAY_MAP_LIMIT
     )
     .as_str();
@@ -89,7 +92,11 @@ async fn handle_status_command(
                 "{}. Бот ожидает загрузки JSON файла в чате {} 🟡\n",
                 idx, chat_id
             ),
-            crate::State::Disabled => format!("{}. Бот отключен в {} 🔴\n", idx, chat_id),
+            crate::State::WaitingBirthday => format!(
+                "{}. Бот ожидает добавления дня рождения в чате {} 🟡\n",
+                idx, chat_id
+            ),
+            crate::State::Disabled => format!("{}. Бот отключен в чате {} 🔴\n", idx, chat_id),
         }
         .as_str();
     }

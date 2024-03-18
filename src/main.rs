@@ -1,3 +1,16 @@
+use std::path::Path;
+use std::sync::Arc;
+
+use clap::Parser;
+use teloxide::{
+    dispatching::{DpHandlerDescription, HandlerExt, UpdateFilterExt},
+    dptree,
+    prelude::{DependencyMap, Dispatcher, Handler, LoggingErrorHandler, Message},
+    types::{Update, UserId},
+    Bot, RequestError,
+};
+use tokio::sync::RwLock;
+
 mod args;
 mod birthday;
 mod handles;
@@ -5,22 +18,8 @@ mod state;
 mod tasks;
 mod utils;
 
-pub use birthday::{Birthdays, BirthdaysMap};
-pub use state::{GlobalState, State};
-
-use clap::Parser;
-use teloxide::{
-    dispatching::{DpHandlerDescription, HandlerExt, UpdateFilterExt},
-    dptree,
-    prelude::{ChatId, DependencyMap, Dispatcher, Handler, LoggingErrorHandler, Message},
-    types::{Update, UserId},
-    Bot, RequestError,
-};
-use tokio::sync::RwLock;
-
-use std::collections::HashMap;
-use std::path::Path;
-use std::sync::Arc;
+pub use birthday::{Birthday, Birthdays, BirthdaysMap, BirthdaysMapThreadSafe};
+pub use state::State;
 
 /// The user ID of the bot maintainer.
 const MAINTAINER_USER_ID: u64 = 437067064;
@@ -35,10 +34,8 @@ struct ConfigParameters {
     bot_maintainer: UserId,
     /// The task manager for the bot.
     task_manager: Arc<tasks::Manager>,
-    /// The birthdays map for the bot.
-    b_map: BirthdaysMap,
-    /// The global state for the bot.
-    state: GlobalState,
+    /// The thread-safe map of chat IDs to bot states and birthdays.
+    b_map: BirthdaysMapThreadSafe,
 }
 
 /// The main function for the bot, using Tokio.
@@ -68,10 +65,10 @@ async fn main() -> std::io::Result<()> {
                 log::error!("Error during loading backup file: {}", e);
                 e
             })
-            .unwrap_or_else(|_| Arc::new(RwLock::new(HashMap::<ChatId, (State, Birthdays)>::new())))
+            .unwrap_or_else(|_| Arc::new(RwLock::new(BirthdaysMap::default())))
     } else {
         // Create a thread-safe map of chat IDs to bot states and birthdays
-        Arc::new(RwLock::new(HashMap::<ChatId, (State, Birthdays)>::new()))
+        Arc::new(RwLock::new(BirthdaysMap::default()))
     };
     let birthdays_map_cloned = Arc::clone(&birthdays_map);
     let birthdays_map_cloned_for_backup = Arc::clone(&birthdays_map);
@@ -108,7 +105,6 @@ async fn main() -> std::io::Result<()> {
         bot_maintainer: UserId(args.maintainer_user_id.unwrap_or(MAINTAINER_USER_ID)),
         task_manager: Arc::from(task_manager),
         b_map: birthdays_map,
-        state: GlobalState::Normal,
     };
 
     log::info!("Bot maintainer user ID: {}", parameters.bot_maintainer);
@@ -172,7 +168,7 @@ fn build_handler() -> Handler<'static, DependencyMap, Result<(), RequestError>, 
         // Branch for handling document messages
         .branch(dptree::endpoint(
             move |bot: Bot, msg: Message, cfg: ConfigParameters| async move {
-                handles::document_handler(bot, msg, cfg).await
+                handles::common_commands_handler(bot, msg, cfg).await
             },
         ))
 }

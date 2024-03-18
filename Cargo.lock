@@ -148,6 +148,7 @@ dependencies = [
  "clap",
  "log",
  "pretty_env_logger",
+ "regex",
  "serde",
  "serde_json",
  "teloxide",

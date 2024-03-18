@@ -1,12 +1,16 @@
+use std::fmt::Debug;
+use std::io::BufRead;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use regex::Regex;
 use teloxide::prelude::{ChatId, Request, Requester, UserId};
 use teloxide::types::Chat;
 use teloxide::{Bot, RequestError};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::RwLock;
 
-use std::io::BufRead;
-use std::path::PathBuf;
-use std::sync::Arc;
+use crate::Birthday;
 
 /// Represents places where bot is used
 pub enum Place {
@@ -110,27 +114,29 @@ pub fn get_token(path: Option<PathBuf>) -> std::io::Result<String> {
                 }
                 Err(_) => Err(std::io::Error::new(
                     std::io::ErrorKind::Other,
-                    format!("Failed to get the bot token from environment variable"),
+                    "Failed to get the bot token from environment variable",
                 )),
             }
         }
     }
 }
 
-/// Saves the data to a JSON file.
+/// Saves provided data to a JSON file.
 ///
-/// # Arguments
-///
-/// * `data` - The data to save.
-/// * `backup_file_path` - The path to the JSON file.
+/// # Parameters
+/// - `data`: The data to save, which must be an Arc<RwLock<T>> where T is Serialize.
+/// - `backup_file_path`: The path to the file where data will be backed up.
 ///
 /// # Returns
-///
-/// A `Result` indicating the data was saved or not.
-pub async fn save_to_json(
-    data: super::BirthdaysMap,
+/// - `Ok(())` on success.
+/// - `Err(e)` on error with `e` being an `io::Error`.
+pub async fn save_to_json<T>(
+    data: Arc<RwLock<T>>,
     backup_file_path: &PathBuf,
-) -> Result<(), std::io::Error> {
+) -> Result<(), std::io::Error>
+where
+    T: serde::Serialize + Sync + Send + Debug,
+{
     let data_read = data.read().await;
     log::debug!("{:?}", data_read);
     let json = serde_json::to_string(&*data_read)?;
@@ -146,45 +152,55 @@ pub async fn save_to_json(
     Ok(())
 }
 
-/// Loads the data from a JSON file.
+/// Loads data from a JSON file.
 ///
-/// # Arguments
+/// # Parameters
 ///
-/// * `backup_file_path` - The path to the JSON file.
+/// - `backup_file_path`: The path to the JSON file from which to load the data.
 ///
 /// # Returns
 ///
-/// A `Result` indicating the data was loaded or not.
-pub async fn load_from_json(
-    backup_file_path: &PathBuf,
-) -> Result<super::BirthdaysMap, std::io::Error> {
+/// - `Result` containing either the loaded data wrapped in `Arc<RwLock<T>>` on success,
+///   or an error in case of failure.
+pub async fn load_from_json<T>(backup_file_path: &PathBuf) -> Result<Arc<RwLock<T>>, std::io::Error>
+where
+    T: serde::de::DeserializeOwned + Send + Sync + Debug,
+{
     let mut file = tokio::fs::File::open(backup_file_path).await?;
     let mut contents = String::new();
     file.read_to_string(&mut contents).await?;
 
-    let data = Arc::new(RwLock::new(serde_json::from_str(&contents)?));
+    let data: T = serde_json::from_str(&contents)?;
     log::debug!("{:?}", data);
-    Ok(data)
+    Ok(Arc::new(RwLock::new(data)))
 }
 
-/// Returns the size in bytes of the birthday map.
+/// Parses the input string to create a `Birthday` struct.
+/// The input string should be in the format "name, date, @username" or "name, date".
 ///
 /// # Arguments
 ///
-/// * `birthday_map` - A thread-safe map of chat IDs to bot states and birthdays.
+/// * `input` - The input string to parse.
 ///
 /// # Returns
 ///
-/// The size in bytes of the birthday map.
-pub async fn birthday_map_estimate_size(birthday_map: super::BirthdaysMap) -> usize {
-    let map = birthday_map.read().await;
-    let mut size = std::mem::size_of_val(&map);
-
-    for (chat_id, (state, birthdays)) in map.iter() {
-        size += std::mem::size_of_val(chat_id)
-            + std::mem::size_of_val(state)
-            + std::mem::size_of_val(birthdays);
+/// A `Birthday` struct if the input is valid, otherwise `None`.
+pub fn parse_birthday_info(input: &str) -> Option<Birthday> {
+    let re =
+        Regex::new(r"^(?P<name>\w+\s\w+), (?P<date>\d{2}-\d{2})(, @?(?P<username>\w+))?$").unwrap();
+    if let Some(caps) = re.captures(input) {
+        let name = caps.name("name").unwrap().as_str().to_string();
+        let date = caps.name("date").unwrap().as_str().to_string();
+        let username = caps
+            .name("username")
+            .map(|u| u.as_str().to_string())
+            .unwrap_or_default();
+        Some(Birthday {
+            name,
+            date,
+            username,
+        })
+    } else {
+        None
     }
-
-    size
 }

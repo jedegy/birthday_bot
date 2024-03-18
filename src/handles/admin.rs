@@ -2,19 +2,63 @@ use teloxide::prelude::{Message, Requester, ResponseResult};
 use teloxide::types::InputFile;
 use teloxide::Bot;
 
-use crate::utils::get_place;
-use crate::{Birthdays, ConfigParameters, GlobalState, State};
-
-use std::collections::hash_map::Entry;
+use crate::handles::BUSY_MSG;
+use crate::{Birthdays, ConfigParameters, State};
 
 /// The message to send when the user sends a JSON file.
 const JSON_MSG: &str =
     "Отправьте мне заполненный JSON файл с указанием дней рождений. Я отправил вам пример того, \
 как должен выглядеть файл";
 
-const BUSY_MSG: &str =
-    "К сожалению, в данный момент я не могу принимать новые запросы из-за высокой нагрузки 😞 \
-Попробуйте повторить запрос позже";
+/// The message to send when the user sends a birthday to add.
+const ADD_MSG: &str = "Отправьте мне день рождения в формате 'Имя Фамилия, ДД-ММ, @username' или 'Имя Фамилия, ДД-MM'. \
+    Например, 'Иван Иванов, 01-01, @ivan' или 'Иван Иванов, 01-01'. Для отмены введите команду /cancel";
+
+/// The message to send when the user cancels the birthday addition mode.
+const CANCEL_MSG: &str =
+    "Режим добавления дней рождений отключен. Для активации уведомлений выполните команду /active";
+
+/// The message to send when the user tries to cancel the birthday addition mode without adding any birthdays.
+const CANCEL_EMPTY_LIST_MSG: &str = "Режим добавления дней рождений отключен. \
+    Ни одного дня рождения не добавлено.";
+
+/// The message to send when the user tries to cancel the birthday addition mode when it is already disabled.
+const CANCEL_ALREADY_DISABLED_MSG: &str = "Режим добавления дней рождений уже отключен.";
+
+/// The message to send when the user tries to activate the bot.
+const ACTIVE_MSG: &str = "Уведомления от меня активны!🎉";
+
+/// The message to send when the user tries to activate the bot when it is already active.
+const ACTIVE_ALREADY_ACTIVE_MSG: &str = "Уведомления от меня уже активны!";
+
+/// The message to send when the user tries to activate the bot without adding any birthdays via JSON.
+const ACTIVE_WAITING_JSON_MSG: &str =
+    "Прежде чем активировать уведомления, отправьте мне заполненный JSON файл с днями рождения или выполните \
+    команду /cancel для выхода из режима добавления дней рождений";
+
+/// The message to send when the user tries to activate the bot without adding any birthdays.
+const ACTIVE_EMPTY_LIST: &str =
+    "Ни одного дня рождения не добавлено 😞, поэтому уведомления от меня не активны. \
+    Для добавления дней рождений выполните команду /add или /addmany";
+
+/// The message to send when the user tries to activate the bot without adding any birthdays via `add` command.
+const ACTIVE_WAITING_BIR_MSG: &str =
+    "Прежде чем активировать уведомления, выполните команду /cancel, чтобы выйти из режима добавления дней рождений";
+
+/// The message to send when the user tries to disable the bot.
+const DISABLE_MSG: &str = "Уведомления от меня отключены!";
+
+/// The message to send when the user tries to disable the bot when it is already disabled.
+const DISABLE_ALREADY_DISABLED_MSG: &str = "Уведомления от меня уже отключены!";
+
+/// The message to send when the user tries to disable the bot without adding any birthdays via `add` or `addmany` commands.
+const DISABLE_WAITING_MSG: &str =
+    "Прежде чем отключить уведомления, выполните команду /cancel для выхода из режима добавления дней рождений";
+
+/// The message to send when the user tries to disable the bot without adding any birthdays.
+const DISABLE_EMPTY_LIST: &str =
+    "Ни одного дня рождения не добавлено 😞, поэтому уведомления от меня не активны. \
+    Для добавления дней рождений выполните команду /add или /addmany";
 
 /// Handles admin commands for the bot.
 ///
@@ -35,13 +79,136 @@ pub async fn admin_commands_handler(
     cfg: ConfigParameters,
 ) -> ResponseResult<()> {
     match cmd {
+        super::AdminCommands::Add => handle_add_command(bot, msg, cfg).await,
+        super::AdminCommands::AddMany => handle_add_many_command(bot, msg, cfg).await,
+        super::AdminCommands::Cancel => handle_cancel_command(bot, msg, cfg).await,
         super::AdminCommands::Active => handle_active_command(bot, msg, cfg).await,
         super::AdminCommands::Disable => handle_disable_command(bot, msg, cfg).await,
         super::AdminCommands::List => handle_list_command(bot, msg, cfg).await,
     }
 }
 
+/// Handles the `add` command for the bot.
+/// This function sets the bot state to `WaitingBirthday` for the chat and sends a message
+/// to the chat with instructions on how to add a birthday.
+///
+/// # Arguments
+///
+/// * `bot` - The bot instance.
+/// * `msg` - The message triggering the command.
+/// * `cfg` - Configuration parameters for the bot.
+///
+/// # Returns
+///
+/// A `ResponseResult` indicating the success or failure of the command.
+async fn handle_add_command(bot: Bot, msg: Message, cfg: ConfigParameters) -> ResponseResult<()> {
+    log::info!("Add command received from chat id {}", msg.chat.id);
+
+    let mut b_map = cfg.b_map.write().await;
+
+    match b_map.update_state(&msg.chat.id, State::WaitingBirthday) {
+        Ok(_) => {
+            bot.send_message(msg.chat.id, ADD_MSG).await?;
+            Ok(())
+        }
+        Err(_) => {
+            bot.send_message(msg.chat.id, BUSY_MSG).await?;
+            Ok(())
+        }
+    }
+}
+
+/// Handles the `addmany` command for the bot.
+/// This function sets the bot state to `WaitingJson` for the chat and sends a message
+/// to the chat with instructions on how to add a JSON file with birthdays.
+///
+/// # Arguments
+///
+/// * `bot` - The bot instance.
+/// * `msg` - The message triggering the command.
+/// * `cfg` - Configuration parameters for the bot.
+///
+/// # Returns
+///
+/// A `ResponseResult` indicating the success or failure of the command.
+async fn handle_add_many_command(
+    bot: Bot,
+    msg: Message,
+    cfg: ConfigParameters,
+) -> ResponseResult<()> {
+    log::info!("AddMany command received from chat id {}", msg.chat.id);
+
+    let mut b_map = cfg.b_map.write().await;
+
+    match b_map.update_state(&msg.chat.id, State::WaitingJson) {
+        Ok(_) => {
+            bot.send_message(msg.chat.id, JSON_MSG).await?;
+            bot.send_document(msg.chat.id, InputFile::file(super::SAMPLE_JSON_FILE_PATH))
+                .await?;
+            Ok(())
+        }
+        Err(_) => {
+            bot.send_message(msg.chat.id, BUSY_MSG).await?;
+            Ok(())
+        }
+    }
+}
+
+/// Handles the `cancel` command for the bot.
+/// This function sets the bot state to `Disabled` to disable the birthday addition mode for the chat
+/// and sends a message to the chat to confirm the cancellation and list the current birthdays.
+///
+/// # Arguments
+///
+/// * `bot` - The bot instance.
+/// * `msg` - The message triggering the command.
+/// * `cfg` - Configuration parameters for the bot.
+///
+/// # Returns
+///
+/// A `ResponseResult` indicating the success or failure of the command.
+async fn handle_cancel_command(
+    bot: Bot,
+    msg: Message,
+    cfg: ConfigParameters,
+) -> ResponseResult<()> {
+    log::info!("Cancel command received from chat id {}", msg.chat.id);
+
+    let mut b_map = cfg.b_map.write().await;
+
+    match b_map.get_mut(&msg.chat.id) {
+        Some((state, _)) => match state {
+            State::WaitingBirthday | State::WaitingJson => {
+                match b_map.update_state(&msg.chat.id, State::Disabled) {
+                    Ok(_) => {
+                        bot.send_message(msg.chat.id, CANCEL_MSG).await?;
+                        let (_, birthdays) = b_map.get(&msg.chat.id).unwrap();
+                        bot.send_message(msg.chat.id, birthdays.list()).await?;
+                    }
+                    Err(_) => {
+                        bot.send_message(msg.chat.id, BUSY_MSG).await?;
+                    }
+                }
+            }
+            _ => {
+                bot.send_message(msg.chat.id, CANCEL_ALREADY_DISABLED_MSG)
+                    .await?;
+            }
+        },
+        None => {
+            if let Err(_) = b_map.insert(msg.chat.id, State::Disabled, Birthdays::default()) {
+                bot.send_message(msg.chat.id, BUSY_MSG).await?;
+            } else {
+                bot.send_message(msg.chat.id, CANCEL_EMPTY_LIST_MSG).await?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// Handles the `list` command for the bot.
+/// This function sends a message to the chat with the list of current birthdays for the chat.
 ///
 /// # Arguments
 ///
@@ -53,6 +220,8 @@ pub async fn admin_commands_handler(
 ///
 /// A `ResponseResult` indicating the success or failure of the command.
 async fn handle_list_command(bot: Bot, msg: Message, cfg: ConfigParameters) -> ResponseResult<()> {
+    log::info!("List command received from chat id {}", msg.chat.id);
+
     let b_map = cfg.b_map.read().await;
     let birthdays_default = Birthdays::default();
     let birthdays = b_map
@@ -60,25 +229,13 @@ async fn handle_list_command(bot: Bot, msg: Message, cfg: ConfigParameters) -> R
         .map(|(_, birthdays)| birthdays)
         .unwrap_or(&birthdays_default);
 
-    if birthdays.len() == 0 {
-        bot.send_message(msg.chat.id, "Список дней рождений пуст")
-            .await?;
-    } else {
-        let mut reply_text = String::from("Список дней рождений:\n");
-        for (idx, birthday) in birthdays.get_birthdays().iter().enumerate() {
-            reply_text += format!(
-                "{}. {} - {} {}\n",
-                idx, birthday.name, birthday.date, birthday.username
-            )
-            .as_str();
-        }
-        bot.send_message(msg.chat.id, reply_text).await?;
-    }
+    bot.send_message(msg.chat.id, birthdays.list()).await?;
 
     Ok(())
 }
 
-/// Handles the activation command for the bot.
+/// Handles the `active` command for the bot.
+/// This function activates the bot for the chat and sends a message to the chat to confirm the activation.
 ///
 /// # Arguments
 ///
@@ -92,58 +249,49 @@ async fn handle_list_command(bot: Bot, msg: Message, cfg: ConfigParameters) -> R
 async fn handle_active_command(
     bot: Bot,
     msg: Message,
-    mut cfg: ConfigParameters,
+    cfg: ConfigParameters,
 ) -> ResponseResult<()> {
     log::info!("Active command received from chat id {}", msg.chat.id);
 
-    let b_map_size = crate::utils::birthday_map_estimate_size(cfg.b_map.clone()).await;
-    let place = get_place(&msg.chat);
+    let mut b_map = cfg.b_map.write().await;
 
-    let (reply_msg, send_sample) = {
-        let mut map = cfg.b_map.write().await;
-
-        map.get_mut(&msg.chat.id)
-            .map(|(state, birthdays)| match state {
-                State::Active | State::Disabled if birthdays.get_birthdays().is_empty() => {
-                    if b_map_size >= crate::birthday::BIRTHDAY_MAP_LIMIT {
-                        cfg.state = GlobalState::Busy;
-                        (BUSY_MSG.into(), false)
-                    } else {
-                        *state = State::WaitingJson;
-                        (JSON_MSG.into(), false)
-                    }
-                }
-                State::Disabled => {
-                    *state = State::Active;
-                    (
-                        format!("Уведомления от меня снова активны {}", place),
-                        false,
-                    )
-                }
-                State::Active => (format!("Уведомления от меня уже активны {}", place), false),
-                State::WaitingJson => (JSON_MSG.into(), false),
-            })
-            .unwrap_or({
-                if b_map_size >= crate::birthday::BIRTHDAY_MAP_LIMIT {
-                    cfg.state = GlobalState::Busy;
-                    (BUSY_MSG.into(), false)
+    match b_map.get_mut(&msg.chat.id) {
+        Some((state, birthdays)) => match state {
+            State::Disabled => {
+                if birthdays.is_empty() {
+                    bot.send_message(msg.chat.id, ACTIVE_EMPTY_LIST).await?;
                 } else {
-                    map.insert(msg.chat.id, (State::WaitingJson, Birthdays::default()));
-                    (JSON_MSG.into(), true)
+                    *state = State::Active;
+                    bot.send_message(msg.chat.id, ACTIVE_MSG).await?;
                 }
-            })
-    };
-    bot.send_message(msg.chat.id, reply_msg).await?;
-
-    if send_sample {
-        bot.send_document(msg.chat.id, InputFile::file(super::SAMPLE_JSON_FILE_PATH))
-            .await?;
+            }
+            State::Active => {
+                bot.send_message(msg.chat.id, ACTIVE_ALREADY_ACTIVE_MSG)
+                    .await?;
+            }
+            State::WaitingJson => {
+                bot.send_message(msg.chat.id, ACTIVE_WAITING_JSON_MSG)
+                    .await?;
+            }
+            State::WaitingBirthday => {
+                bot.send_message(msg.chat.id, ACTIVE_WAITING_BIR_MSG)
+                    .await?;
+            }
+        },
+        None => {
+            if let Err(_) = b_map.insert(msg.chat.id, State::Disabled, Birthdays::default()) {
+                bot.send_message(msg.chat.id, BUSY_MSG).await?;
+            } else {
+                bot.send_message(msg.chat.id, ACTIVE_EMPTY_LIST).await?;
+            }
+        }
     }
 
     Ok(())
 }
 
-/// Handles the disable command for the bot.
+/// Handles the `disable` command for the bot.
+/// This function disables the bot for the chat and sends a message to the chat to confirm the deactivation.
 ///
 /// # Arguments
 ///
@@ -161,29 +309,30 @@ async fn handle_disable_command(
 ) -> ResponseResult<()> {
     log::info!("Disable command received from chat id {}", msg.chat.id);
 
-    let place = get_place(&msg.chat);
+    let mut b_map = cfg.b_map.write().await;
 
-    let reply_text = {
-        let mut map = cfg.b_map.write().await;
-        match map.entry(msg.chat.id) {
-            Entry::Occupied(mut entry) => {
-                let (state, _) = entry.get_mut();
-                match *state {
-                    State::Disabled => format!("Уведомления от меня уже отключены {}", place),
-                    _ => {
-                        *state = State::Disabled;
-                        format!("Уведомления от меня отключены {}. Для повторной активации выполните команду /active", place)
-                    }
-                }
+    match b_map.get_mut(&msg.chat.id) {
+        Some((state, _)) => match state {
+            State::Disabled => {
+                bot.send_message(msg.chat.id, DISABLE_ALREADY_DISABLED_MSG)
+                    .await?;
             }
-            Entry::Vacant(entry) => {
-                entry.insert((State::Disabled, Birthdays::default()));
-                format!("Уведомления от меня отключены {}. Для повторной активации выполните команду /active", place)
+            State::Active => {
+                *state = State::Disabled;
+                bot.send_message(msg.chat.id, DISABLE_MSG).await?;
+            }
+            State::WaitingJson | State::WaitingBirthday => {
+                bot.send_message(msg.chat.id, DISABLE_WAITING_MSG).await?;
+            }
+        },
+        None => {
+            if let Err(_) = b_map.insert(msg.chat.id, State::Disabled, Birthdays::default()) {
+                bot.send_message(msg.chat.id, BUSY_MSG).await?;
+            } else {
+                bot.send_message(msg.chat.id, DISABLE_EMPTY_LIST).await?;
             }
         }
-    };
-
-    bot.send_message(msg.chat.id, &reply_text).await?;
+    }
 
     Ok(())
 }
