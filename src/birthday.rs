@@ -194,6 +194,25 @@ impl BirthdaysMap {
         Ok(())
     }
 
+    /// Remove the birthday at the given index for the given chat ID.
+    /// If the chat ID is not present in the map, it will return None.
+    ///
+    /// # Arguments
+    ///
+    /// * `chat_id` - The chat ID.
+    /// * `index` - The index of the birthday to remove.
+    ///
+    /// # Returns
+    ///
+    /// Some birthday if it was removed, otherwise None.
+    pub fn remove_birthday(&mut self, chat_id: &ChatId, index: usize) -> Option<Birthday> {
+        if let Some((_, birthdays)) = self.map.get_mut(chat_id) {
+            birthdays.remove(index)
+        } else {
+            None
+        }
+    }
+
     /// Return the reference to the tuple of bot state and birthdays for the given chat ID.
     ///
     /// # Arguments
@@ -296,7 +315,28 @@ impl Birthdays {
         self.birthdays.extend(set.into_iter());
     }
 
+    /// Removes the birthday at the given index from the list.
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - The index of the birthday to remove.
+    ///
+    /// # Returns
+    ///
+    /// Some birthday if it was removed, otherwise None.
+    pub fn remove(&mut self, index: usize) -> Option<Birthday> {
+        if let Some(_) = self.birthdays.get(index) {
+            Some(self.birthdays.remove(index))
+        } else {
+            None
+        }
+    }
+
     /// Returns a string representation of the list of birthdays.
+    ///
+    /// # Returns
+    ///
+    ///
     pub fn list(&self) -> String {
         if self.birthdays.is_empty() {
             "Список дней рождений пуст".to_string()

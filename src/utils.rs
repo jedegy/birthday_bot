@@ -186,8 +186,8 @@ where
 ///
 /// A `Birthday` struct if the input is valid, otherwise `None`.
 pub fn parse_birthday_info(input: &str) -> Option<Birthday> {
-    let re =
-        Regex::new(r"^(?P<name>\w+\s\w+), (?P<date>\d{2}-\d{2})(, @?(?P<username>\w+))?$").unwrap();
+    let re = Regex::new(r"^(?P<name>\w+\s?\w*), (?P<date>\d{2}-\d{2})(, @?(?P<username>\w+))?$")
+        .unwrap();
     if let Some(caps) = re.captures(input) {
         let name = caps.name("name").unwrap().as_str().to_string();
         let date = caps.name("date").unwrap().as_str().to_string();
@@ -203,4 +203,17 @@ pub fn parse_birthday_info(input: &str) -> Option<Birthday> {
     } else {
         None
     }
+}
+
+/// Parses the input string to create a birthday index.
+///
+/// # Arguments
+///
+/// * `input` - The input string to parse.
+///
+/// # Returns
+///
+/// A `usize` representing the birthday index if the input is valid, otherwise `None`.
+pub fn parse_birthday_index(input: &str) -> Option<usize> {
+    input.parse::<usize>().ok()
 }

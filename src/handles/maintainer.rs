@@ -96,6 +96,10 @@ async fn handle_status_command(
                 "{}. Бот ожидает добавления дня рождения в чате {} 🟡\n",
                 idx, chat_id
             ),
+            crate::State::WaitingRemoving => format!(
+                "{}. Бот ожидает удаления дня рождения в чате {} 🟡\n",
+                idx, chat_id
+            ),
             crate::State::Disabled => format!("{}. Бот отключен в чате {} 🔴\n", idx, chat_id),
         }
         .as_str();

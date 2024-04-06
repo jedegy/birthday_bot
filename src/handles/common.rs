@@ -45,7 +45,12 @@ pub async fn common_commands_handler(
         }
         State::WaitingBirthday => {
             if let Some(text) = msg.text() {
-                text_handler(text, bot, chat_id, cfg).await?
+                add_handler(text, bot, chat_id, cfg).await?
+            }
+        }
+        State::WaitingRemoving => {
+            if let Some(text) = msg.text() {
+                remove_handler(text, bot, chat_id, cfg).await?
             }
         }
         _ => {}
@@ -67,7 +72,7 @@ pub async fn common_commands_handler(
 /// # Returns
 ///
 /// A `ResponseResult` indicating the success or failure of the command.
-pub async fn text_handler(
+pub async fn add_handler(
     text: &str,
     bot: Bot,
     chat_id: ChatId,
@@ -147,6 +152,62 @@ pub async fn document_handler(
             )
             .await?;
         }
+    }
+
+    Ok(())
+}
+
+/// Handles removing birthdays for the bot.
+/// This function processes the received text as an index of the birthday to remove and updates the
+/// bot state accordingly if the input is valid.
+///
+/// # Arguments
+///
+/// * `text` - The reference to the received text.
+/// * `bot` - The bot instance.
+/// * `chat_id` - The chat ID.
+/// * `cfg` - Configuration parameters for the bot.
+///
+/// # Returns
+///
+/// A `ResponseResult` indicating the success or failure of the command.
+pub async fn remove_handler(
+    text: &str,
+    bot: Bot,
+    chat_id: ChatId,
+    cfg: ConfigParameters,
+) -> ResponseResult<()> {
+    log::info!("Birthday index received from chat id {}", chat_id);
+
+    if let Some(index) = crate::utils::parse_birthday_index(text) {
+        let mut b_map = cfg.b_map.write().await;
+
+        if let Some(birthday) = b_map.remove_birthday(&chat_id, index) {
+            log::info!("Birthday {:?} removed for chat id {}", birthday, chat_id);
+            bot.send_message(
+                chat_id,
+                format!(
+                    "День рождение, Имя: {}, Дата: {} успешно удалён!",
+                    birthday.name, birthday.date
+                ),
+            )
+            .await?;
+        } else {
+            log::error!(
+                "Birthday with index {} not found for chat id {}",
+                index,
+                chat_id
+            );
+            bot.send_message(
+                chat_id,
+                "День рождение не найден по указанному индексу 😔 Попробуйте ещё раз",
+            )
+            .await?;
+        }
+    } else {
+        log::warn!("Invalid input format");
+        bot.send_message(chat_id, "Неверный формат ввода 😔 Попробуйте ещё раз")
+            .await?;
     }
 
     Ok(())

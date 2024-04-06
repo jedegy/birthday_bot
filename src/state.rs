@@ -7,4 +7,5 @@ pub enum State {
     Disabled,
     WaitingJson,
     WaitingBirthday,
+    WaitingRemoving,
 }

@@ -42,11 +42,15 @@ pub enum MaintainerCommands {
 #[derive(BotCommands, Clone)]
 #[command(rename_rule = "lowercase")]
 pub enum AdminCommands {
-    #[command(description = "Добавляет день рождения в список")]
+    #[command(description = "Включает режим добавления дней рождений")]
     Add,
-    #[command(description = "Добавляет несколько дней рождений в список используя JSON файл")]
+    #[command(
+        description = "Включает режим добавления нескольких дней рождений в список используя JSON файл"
+    )]
     AddMany,
-    #[command(description = "Отлючает режим добавления дней рождений")]
+    #[command(description = "Включает режим удаления дней рождений")]
+    Remove,
+    #[command(description = "Отлючает режим добавления или удаления дней рождений")]
     Cancel,
     #[command(description = "Включает уведомления о днях рождениях от меня")]
     Active,
