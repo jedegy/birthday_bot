@@ -165,10 +165,22 @@ fn build_handler() -> Handler<'static, DependencyMap, Result<(), RequestError>, 
             .filter_command::<handles::AdminCommands>()
             .endpoint(handles::admin_commands_handler),
         )
-        // Branch for handling document messages
-        .branch(dptree::endpoint(
-            move |bot: Bot, msg: Message, cfg: ConfigParameters| async move {
-                handles::common_commands_handler(bot, msg, cfg).await
-            },
-        ))
+        // Branch for handling common commands
+        .branch(
+            dptree::filter_async(|bot: Bot, msg: Message, cfg: ConfigParameters| async move {
+                if let Some(user) = msg.from() {
+                    user.id == cfg.bot_maintainer
+                        || ((msg.chat.is_group()
+                            || msg.chat.is_supergroup()
+                            || msg.chat.is_channel())
+                            && utils::is_admin(&bot, msg.chat.id, user.id)
+                                .await
+                                .unwrap_or_default())
+                        || msg.chat.is_chat()
+                } else {
+                    false
+                }
+            })
+            .endpoint(handles::common_commands_handler),
+        )
 }
