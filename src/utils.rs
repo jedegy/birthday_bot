@@ -193,7 +193,7 @@ pub fn parse_birthday_info(input: &str) -> Option<Birthday> {
         let date = caps.name("date").unwrap().as_str().to_string();
         let username = caps
             .name("username")
-            .map(|u| u.as_str().to_string())
+            .map(|u| format!("@{}", u.as_str()))
             .unwrap_or_default();
         Some(Birthday {
             name,
