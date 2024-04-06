@@ -36,6 +36,8 @@ struct ConfigParameters {
     task_manager: Arc<tasks::Manager>,
     /// The thread-safe map of chat IDs to bot states and birthdays.
     b_map: BirthdaysMapThreadSafe,
+    /// The path to the backup file.
+    backup_path: std::path::PathBuf,
 }
 
 /// The main function for the bot, using Tokio.
@@ -96,7 +98,7 @@ async fn main() -> std::io::Result<()> {
         tokio::spawn(tasks::health_check_task(bot_for_hc)), // Health check
         tokio::spawn(tasks::daily_backup_task(
             birthdays_map_cloned_for_backup.clone(),
-            args.backup_path,
+            args.backup_path.clone(),
         )), // Daily backup
     );
 
@@ -105,6 +107,7 @@ async fn main() -> std::io::Result<()> {
         bot_maintainer: UserId(args.maintainer_user_id.unwrap_or(MAINTAINER_USER_ID)),
         task_manager: Arc::from(task_manager),
         b_map: birthdays_map,
+        backup_path: args.backup_path,
     };
 
     log::info!("Bot maintainer user ID: {}", parameters.bot_maintainer);

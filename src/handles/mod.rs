@@ -36,6 +36,8 @@ const BUSY_MSG: &str =
 pub enum MaintainerCommands {
     #[command(description = "Проверяет статус бота")]
     Status,
+    #[command(description = "Запускает создание резервной копии данных бота")]
+    Backup,
 }
 
 /// Enum defining admin commands for the bot.

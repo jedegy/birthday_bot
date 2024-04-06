@@ -48,5 +48,6 @@ Main commands:
 - `/disable` — Disables birthday notifications in this chat.
 - `/list` — Displays the list of birthdays.
 - `/stats` — Displays bot statistics. Only for maintainers.
+- `/backup` — Manually creates a backup of the HashMap with birthdays. Only for maintainers.
 
 Also, bot makes daily backups of the HashMap with birthdays every day at **12:00 PM UTC**.

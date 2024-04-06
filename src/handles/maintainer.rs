@@ -23,6 +23,7 @@ pub async fn maintainer_commands_handler(
 ) -> ResponseResult<()> {
     match cmd {
         super::MaintainerCommands::Status => handle_status_command(bot, msg, cfg).await,
+        super::MaintainerCommands::Backup => handle_backup_command(bot, msg, cfg).await,
     }
 }
 
@@ -106,6 +107,40 @@ async fn handle_status_command(
     }
 
     bot.send_message(msg.chat.id, reply_text).await?;
+
+    Ok(())
+}
+
+/// Handles the `backup` command for the bot.
+/// This function saves the current state of the bot's data to a JSON file.
+///
+/// # Arguments
+///
+/// * `bot` - The bot instance.
+/// * `msg` - The message triggering the command.
+/// * `cfg` - Configuration parameters for the bot.
+///
+/// # Returns
+///
+/// A `ResponseResult` indicating the success or failure of the command.
+async fn handle_backup_command(
+    bot: Bot,
+    msg: Message,
+    cfg: ConfigParameters,
+) -> ResponseResult<()> {
+    // Save data to JSON
+    match crate::utils::save_to_json(cfg.b_map.clone(), &cfg.backup_path).await {
+        Ok(_) => {
+            log::info!("Birthdays data successfully saved to JSON");
+            bot.send_message(msg.chat.id, "Дни рождения успешно сохранены")
+                .await?;
+        }
+        Err(e) => {
+            log::error!("Error during saving birthdays data to JSON: {}", e);
+            bot.send_message(msg.chat.id, "Возникла ошибка при сохранении дней рождений")
+                .await?;
+        }
+    }
 
     Ok(())
 }
